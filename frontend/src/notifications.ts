@@ -3,7 +3,8 @@ import { Platform } from "react-native";
 import { storage } from "@/src/utils/storage";
 
 const REMINDER_ENABLED_KEY = "boostbac_reminders";
-const REMINDER_HOUR = 18; // 6 PM
+const REMINDER_HOUR_KEY = "boostbac_reminder_hour";
+const DEFAULT_HOUR = 18; // 6 PM
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -18,6 +19,10 @@ export async function getReminderEnabled(): Promise<boolean> {
   return (await storage.getItem<boolean>(REMINDER_ENABLED_KEY, false)) ?? false;
 }
 
+export async function getReminderHour(): Promise<number> {
+  return (await storage.getItem<number>(REMINDER_HOUR_KEY, DEFAULT_HOUR)) ?? DEFAULT_HOUR;
+}
+
 export async function requestPermission(): Promise<boolean> {
   const settings = await Notifications.getPermissionsAsync();
   let granted = settings.granted;
@@ -28,7 +33,7 @@ export async function requestPermission(): Promise<boolean> {
   return granted;
 }
 
-export async function enableReminder(title: string, body: string): Promise<boolean> {
+export async function enableReminder(title: string, body: string, hour: number = DEFAULT_HOUR): Promise<boolean> {
   const granted = await requestPermission();
   if (!granted) return false;
   await Notifications.cancelAllScheduledNotificationsAsync();
@@ -42,11 +47,12 @@ export async function enableReminder(title: string, body: string): Promise<boole
     content: { title, body },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: REMINDER_HOUR,
+      hour,
       minute: 0,
     },
   });
   await storage.setItem(REMINDER_ENABLED_KEY, true);
+  await storage.setItem(REMINDER_HOUR_KEY, hour);
   return true;
 }
 

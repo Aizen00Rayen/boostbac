@@ -787,6 +787,41 @@ async def badges(user: CurrentUser):
     return {"badges": out, "earned_count": earned_count, "total": len(out)}
 
 
+# --------------------------------------------------------------------------
+# Weekly leaderboard (XP earned in the last 7 days)
+# --------------------------------------------------------------------------
+@api.get("/leaderboard")
+async def leaderboard(user: CurrentUser):
+    cutoff = iso(now_utc() - timedelta(days=7))
+    logs = await db.review_logs.find({"reviewed_at": {"$gte": cutoff}}, {"_id": 0}).to_list(50000)
+    exams = await db.exams.find({"taken_at": {"$gte": cutoff}, "score": {"$ne": None}}, {"_id": 0}).to_list(5000)
+
+    xp_by_user: dict = {}
+    for l in logs:
+        xp_by_user[l["user_id"]] = xp_by_user.get(l["user_id"], 0) + RATING_XP.get(l.get("rating"), 0)
+    for e in exams:
+        xp_by_user[e["user_id"]] = xp_by_user.get(e["user_id"], 0) + (e.get("correct", 0) * 5)
+
+    ids = list(xp_by_user.keys())
+    users = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "user_id": 1, "name": 1, "picture": 1}).to_list(2000)
+    umap = {u["user_id"]: u for u in users}
+
+    rows = []
+    for uid, xp in xp_by_user.items():
+        u = umap.get(uid, {})
+        rows.append({"user_id": uid, "name": u.get("name") or "Student", "picture": u.get("picture"), "weekly_xp": xp})
+    rows.sort(key=lambda r: r["weekly_xp"], reverse=True)
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+        r["is_me"] = r["user_id"] == user["user_id"]
+
+    me = next((r for r in rows if r["is_me"]), None)
+    if me is None:
+        me = {"user_id": user["user_id"], "name": user.get("name") or "Student", "picture": user.get("picture"),
+              "weekly_xp": 0, "rank": len(rows) + 1, "is_me": True}
+    return {"leaderboard": rows[:50], "me": me, "total_players": len(rows)}
+
+
 @api.get("/")
 async def root():
     return {"message": "BoostBac API", "status": "ok"}

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
 import { flushPending } from "@/src/offline";
+import { useBadges } from "@/src/context/BadgeContext";
 import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
@@ -30,6 +31,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { refresh: refreshBadges } = useBadges();
   const [data, setData] = useState<Home | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -41,6 +43,7 @@ export default function HomeScreen() {
       flushPending(); // sync any offline reviews
       const d = await api<Home>("/home");
       setData(d);
+      refreshBadges();
     } catch {
       setError(true);
     } finally {

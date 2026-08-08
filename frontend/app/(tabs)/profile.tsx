@@ -1,29 +1,37 @@
-import { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import ViewShot from "react-native-view-shot";
+import * as Sharing from "expo-sharing";
+import { LinearGradient } from "expo-linear-gradient";
 import { api } from "@/src/api";
 import { useI18n, Lang } from "@/src/i18n";
 import { useAuth } from "@/src/context/AuthContext";
-import { getReminderEnabled, enableReminder, disableReminder } from "@/src/notifications";
+import { useBadges } from "@/src/context/BadgeContext";
+import { getReminderEnabled, getReminderHour, enableReminder, disableReminder } from "@/src/notifications";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
 import { RText, Card, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane } from "@/src/components/graphics";
 
 const STREAMS = ["math", "science", "tech", "management", "letters", "languages"] as const;
 const GOALS = [10, 20, 30, 50];
+const HOURS = [8, 12, 16, 18, 20, 21];
 
 export default function Profile() {
   const { t, lang, setLang } = useI18n();
   const { user, logout, setUser, refresh } = useAuth();
+  const { refresh: refreshBadges } = useBadges();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const shotRef = useRef<ViewShot>(null);
   const [home, setHome] = useState<{ mastered_cards: number; longest_streak: number; current_streak: number } | null>(null);
   const [badges, setBadges] = useState<{ id: string; icon: string; earned: boolean; progress: number; value: number; target: number }[]>([]);
   const [earnedCount, setEarnedCount] = useState(0);
   const [reminderOn, setReminderOn] = useState(false);
+  const [reminderHour, setReminderHour] = useState(18);
   const [notifMsg, setNotifMsg] = useState("");
 
   const load = useCallback(async () => {
@@ -34,8 +42,10 @@ export default function Profile() {
       setBadges(b.badges);
       setEarnedCount(b.earned_count);
       setReminderOn(await getReminderEnabled());
+      setReminderHour(await getReminderHour());
+      refreshBadges();
     } catch {}
-  }, [setUser]);
+  }, [setUser, refreshBadges]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -57,10 +67,26 @@ export default function Profile() {
       await disableReminder();
       setReminderOn(false);
     } else {
-      const ok = await enableReminder(t("notifTitle"), t("notifBody"));
+      const ok = await enableReminder(t("notifTitle"), t("notifBody"), reminderHour);
       if (ok) setReminderOn(true);
       else setNotifMsg(t("notifDenied"));
     }
+  };
+
+  const pickHour = async (h: number) => {
+    setReminderHour(h);
+    if (reminderOn) await enableReminder(t("notifTitle"), t("notifBody"), h);
+  };
+
+  const onShare = async () => {
+    try {
+      if (Platform.OS === "web") return;
+      const uri = await shotRef.current?.capture?.();
+      if (!uri) return;
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { dialogTitle: t("shareProgress"), mimeType: "image/png" });
+      }
+    } catch {}
   };
 
   if (!user) return null;
@@ -73,22 +99,54 @@ export default function Profile() {
         </RText>
       </View>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
-        {/* Identity */}
-        <Card style={styles.idCard}>
-          <View style={[styles.avatar, glow(colors.brand, 12)]}>
-            {user.picture ? (
-              <Image source={{ uri: user.picture }} style={{ width: 72, height: 72, borderRadius: 36 }} />
-            ) : (
-              <RText weight="heavy" style={{ color: colors.onBrandPrimary, fontSize: font["2xl"] }}>
-                {(user.name || "?").charAt(0).toUpperCase()}
-              </RText>
-            )}
+        {/* Identity — shareable card */}
+        <ViewShot ref={shotRef} options={{ format: "png", quality: 0.95 }} style={{ borderRadius: radius.lg, overflow: "hidden" }}>
+          <View style={styles.shareCard}>
+            <LinearGradient colors={["#0F3B45", colors.surface]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: spacing.lg }}>
+              <PaperPlane size={20} color={colors.brand} />
+              <RText weight="heavy" style={{ color: colors.brand, fontSize: font.lg, letterSpacing: 1 }}>BOOSTBAC</RText>
+            </View>
+            <View style={[styles.avatar, glow(colors.brand, 12)]}>
+              {user.picture ? (
+                <Image source={{ uri: user.picture }} style={{ width: 72, height: 72, borderRadius: 36 }} />
+              ) : (
+                <RText weight="heavy" style={{ color: colors.onBrandPrimary, fontSize: font["2xl"] }}>
+                  {(user.name || "?").charAt(0).toUpperCase()}
+                </RText>
+              )}
+            </View>
+            <RText weight="heavy" style={{ color: colors.onSurface, fontSize: font.xl, marginTop: spacing.md }}>
+              {user.name}
+            </RText>
+            <RText style={{ color: colors.muted }}>{user.email || t("member")}</RText>
+            <View style={styles.shareStats}>
+              <View style={styles.shareStat}>
+                <RText weight="heavy" style={{ color: colors.brand, fontSize: font.xl }}>{home?.current_streak ?? 0}</RText>
+                <RText style={styles.gridLabel}>{t("streak")}</RText>
+              </View>
+              <View style={styles.shareStat}>
+                <RText weight="heavy" style={{ color: colors.warning, fontSize: font.xl }}>{user.xp}</RText>
+                <RText style={styles.gridLabel}>{t("totalXP")}</RText>
+              </View>
+              <View style={styles.shareStat}>
+                <RText weight="heavy" style={{ color: colors.success, fontSize: font.xl }}>{earnedCount}</RText>
+                <RText style={styles.gridLabel}>{t("badges")}</RText>
+              </View>
+            </View>
           </View>
-          <RText weight="heavy" style={{ color: colors.onSurface, fontSize: font.xl, marginTop: spacing.md }}>
-            {user.name}
-          </RText>
-          <RText style={{ color: colors.muted }}>{user.email || t("member")}</RText>
-        </Card>
+        </ViewShot>
+
+        {Platform.OS !== "web" && (
+          <PrimaryButton
+            testID="share-progress"
+            variant="secondary"
+            label={t("shareProgress")}
+            onPress={onShare}
+            icon={<Ionicons name="share-social" size={20} color={colors.brand} />}
+            style={{ marginTop: spacing.md }}
+          />
+        )}
 
         {/* Stats grid */}
         <View style={styles.grid}>
@@ -184,6 +242,20 @@ export default function Profile() {
             <View style={[styles.knob, reminderOn && styles.knobOn]} />
           </View>
         </Pressable>
+        {reminderOn && (
+          <View style={{ marginTop: spacing.md }}>
+            <RText weight="bold" style={{ color: colors.onSurfaceSecondary, marginBottom: spacing.sm }}>{t("reminderTime")}</RText>
+            <View style={styles.chipWrap}>
+              {HOURS.map((h) => (
+                <Pressable key={h} testID={`hour-${h}`} onPress={() => pickHour(h)} style={[styles.chip, reminderHour === h && styles.chipActive]}>
+                  <RText weight="heavy" style={{ color: reminderHour === h ? colors.onBrandPrimary : colors.onSurfaceSecondary }}>
+                    {String(h).padStart(2, "0")}:00
+                  </RText>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
         {notifMsg ? <RText style={{ color: colors.warning, fontSize: font.sm, marginTop: spacing.sm }}>{notifMsg}</RText> : null}
 
         <PrimaryButton
@@ -204,6 +276,9 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
   headerTitle: { color: colors.onSurface, fontSize: font["2xl"] },
   idCard: { alignItems: "center", paddingVertical: spacing.xl },
+  shareCard: { alignItems: "center", paddingVertical: spacing.xl, paddingHorizontal: spacing.lg, backgroundColor: colors.surfaceSecondary },
+  shareStats: { flexDirection: "row", gap: spacing.xl, marginTop: spacing.lg },
+  shareStat: { alignItems: "center" },
   avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.md },
   gridItem: { width: "47%", alignItems: "center", paddingVertical: spacing.lg, flexGrow: 1 },

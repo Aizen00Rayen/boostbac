@@ -38,6 +38,12 @@ Native mobile app "BoostBac": AI-powered, Duolingo-style active-recall & exam-pr
 - Due Reminders: src/notifications.ts daily 6PM local reminder + permission handling; toggle on Profile. (Fully fires only on a native build, limited in Expo Go.) [DONE]
 - Derja Voice: casual Algerian Derja cheer phrases (DERJA_CHEERS) shown after good/easy ratings + session-done line on summary. [DONE]
 
+## Implemented (2026-06 — iteration 3)
+- Badge Celebration: BadgeProvider (src/context/BadgeContext.tsx) tracks earned badge ids in storage, detects new unlocks on Home/Profile focus, shows a paper-plane celebration modal. Seeds silently on first load (no false celebrations). [DONE]
+- Reminder Time: hour picker (08/12/16/18/20/21) in Profile reschedules the daily local reminder; stored via notifications helper. [DONE]
+- Share Progress: ViewShot share card (logo + name + streak/XP/badges) captured to PNG and shared via expo-sharing (native only). [DONE]
+- Leaderboard: GET /api/leaderboard (weekly XP from last-7-days review_logs + exams), new "Classement" tab with my-rank hero, medals for top 3, current user highlighted. [DONE, verified — ranks/medals render]
+
 ## Backlog (prioritized)
 - P1: Local push/notification reminders (cards due / streak-at-risk) — requires deployed build.
 - P1: Offline cache of today's due cards (works without connectivity, sync on reconnect).

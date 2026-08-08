@@ -136,6 +136,21 @@ const STRINGS: Record<string, { ar: string; fr: string }> = {
   // notification content
   notifTitle: { ar: "وقت المراجعة! 🛩️", fr: "C'est l'heure de réviser ! 🛩️" },
   notifBody: { ar: "بطاقاتك تنتظرك. حافظ على سلسلتك!", fr: "Tes cartes t'attendent. Garde ta série !" },
+  reminderTime: { ar: "وقت التذكير", fr: "Heure du rappel" },
+  // badge celebration
+  badgeUnlocked: { ar: "وسام جديد! 🎉", fr: "Badge débloqué ! 🎉" },
+  tapContinue: { ar: "اضغط للمتابعة", fr: "Touche pour continuer" },
+  // share
+  shareProgress: { ar: "شارك تقدّمك", fr: "Partager mes progrès" },
+  shareMessage: { ar: "أراجع للباك مع بوست باك! 🛩️", fr: "Je révise mon Bac avec BoostBac ! 🛩️" },
+  // leaderboard
+  leaderboard: { ar: "الترتيب", fr: "Classement" },
+  weeklyRanking: { ar: "ترتيب الأسبوع", fr: "Classement de la semaine" },
+  weeklyXP: { ar: "نقاط الأسبوع", fr: "XP cette semaine" },
+  yourRank: { ar: "ترتيبك", fr: "Ton rang" },
+  players: { ar: "لاعب", fr: "joueurs" },
+  noLeaderboard: { ar: "كن أول من يجمع النقاط هذا الأسبوع!", fr: "Sois le premier à marquer cette semaine !" },
+  rankHint: { ar: "راجع بطاقاتك لتصعد في الترتيب", fr: "Révise pour grimper au classement" },
 };
 
 // Casual Algerian Derja encouragement — shown during reviews regardless of UI language.
