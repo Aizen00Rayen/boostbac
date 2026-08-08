@@ -14,8 +14,9 @@ import Animated, {
   Easing,
   runOnJS,
 } from "react-native-reanimated";
-import { api } from "@/src/api";
-import { useI18n } from "@/src/i18n";
+import { api, ApiError } from "@/src/api";
+import { useI18n, randomCheer, DERJA_SESSION_DONE } from "@/src/i18n";
+import { cacheQueue, getCachedQueue, isOnline, addPending, flushPending } from "@/src/offline";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
 import { RText, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
@@ -45,23 +46,44 @@ export default function Review() {
   const [xp, setXp] = useState(0);
   const [done, setDone] = useState(false);
   const [summary, setSummary] = useState<{ bonus_xp: number; total_xp: number; current_streak: number } | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [cheer, setCheer] = useState("");
 
   const spin = useSharedValue(0);
+  const cheerOpacity = useSharedValue(0);
   const total = queue.length;
 
   useEffect(() => {
     (async () => {
       try {
+        flushPending();
+        const online = await isOnline();
+        if (!online) throw new Error("offline");
         const q = await api<{ cards: CardT[] }>(`/review/queue${deck_id ? `?deck_id=${deck_id}` : ""}`);
         setQueue(q.cards);
+        if (!deck_id) cacheQueue(q.cards as any);
         if (q.cards.length === 0) finish(0, 0, 0);
       } catch {
-        // ignore
+        // offline fallback: use cached queue
+        const cached = await getCachedQueue();
+        setOffline(true);
+        setQueue(cached as any);
+        if (cached.length === 0) finish(0, 0, 0);
       } finally {
         setLoading(false);
       }
     })();
   }, [deck_id]);
+
+  const showCheer = (text: string) => {
+    setCheer(text);
+    cheerOpacity.value = withSequence(
+      withTiming(1, { duration: 220 }),
+      withDelay(1100, withTiming(0, { duration: 400 })),
+    );
+  };
+
+  const cheerStyle = useAnimatedStyle(() => ({ opacity: cheerOpacity.value }));
 
   const flip = () => {
     Haptics.selectionAsync();
@@ -101,11 +123,22 @@ export default function Review() {
     setCorrect(newCorrect);
 
     let gained = 0;
+    const LOCAL_XP: Record<Rating, number> = { again: 2, hard: 5, good: 8, easy: 10 };
     try {
-      const res = await api<{ xp_earned: number }>("/review/submit", { method: "POST", body: { card_id: card.card_id, rating } });
+      const res = await api<{ xp_earned: number }>("/review/submit", { method: "POST", body: { card_id: card.card_id, rating }, timeout: 12000 });
       gained = res.xp_earned;
       setXp((x) => x + res.xp_earned);
-    } catch {}
+    } catch (e: any) {
+      // offline / network → queue for later sync, credit XP locally
+      if (e instanceof ApiError && (e.status === 0 || e.status === 408)) {
+        setOffline(true);
+        await addPending({ card_id: card.card_id, rating });
+        gained = LOCAL_XP[rating];
+        setXp((x) => x + gained);
+      }
+    }
+
+    if (rating === "good" || rating === "easy") showCheer(randomCheer());
 
     // build next queue: if "again", re-append card
     let nextQueue = queue;
@@ -155,7 +188,17 @@ export default function Review() {
         </View>
       </View>
 
+      {offline && (
+        <View style={styles.offlineBanner} testID="offline-banner">
+          <Ionicons name="cloud-offline-outline" size={15} color={colors.warning} />
+          <RText weight="medium" style={{ color: colors.warning, fontSize: font.sm }}>{t("offline")}</RText>
+        </View>
+      )}
+
       <View style={styles.cardArea}>
+        <Animated.View style={[styles.cheerToast, cheerStyle]} pointerEvents="none">
+          <RText weight="heavy" style={styles.cheerText}>{cheer}</RText>
+        </Animated.View>
         <Pressable testID="flashcard" onPress={flip} style={styles.cardPress}>
           <Animated.View style={[styles.card, styles.cardFront, frontStyle]}>
             <View style={styles.subjectTag}>
@@ -255,6 +298,7 @@ function Summary({
         </Animated.View>
       </View>
       <RText weight="heavy" style={styles.summaryTitle}>{t("sessionComplete")}</RText>
+      <RText weight="medium" style={styles.derjaLine}>{DERJA_SESSION_DONE}</RText>
 
       <View style={styles.summaryStats}>
         <View style={styles.sumItem}>
@@ -293,6 +337,9 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", backgroundColor: colors.brand, borderRadius: radius.pill },
   xpChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   cardArea: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
+  offlineBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingVertical: 6, marginHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warning },
+  cheerToast: { position: "absolute", top: 8, left: 0, right: 0, alignItems: "center", zIndex: 5 },
+  cheerText: { color: colors.success, fontSize: font.lg, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.pill, overflow: "hidden" },
   cardPress: { height: CARD_H },
   card: {
     ...StyleSheet.absoluteFillObject,
@@ -315,6 +362,7 @@ const styles = StyleSheet.create({
   // summary
   flyZone: { height: 120, width: "100%", alignItems: "center", justifyContent: "center", marginBottom: spacing.lg },
   summaryTitle: { color: colors.onSurface, fontSize: font["2xl"], textAlign: "center" },
+  derjaLine: { color: colors.brand, fontSize: font.lg, textAlign: "center", marginTop: spacing.sm },
   summaryStats: { flexDirection: "row", gap: spacing.lg, marginTop: spacing["2xl"] },
   sumItem: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, minWidth: 92, borderWidth: 1, borderColor: colors.border },
   sumVal: { color: colors.brand, fontSize: font["2xl"] },

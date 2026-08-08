@@ -31,6 +31,13 @@ Native mobile app "BoostBac": AI-powered, Duolingo-style active-recall & exam-pr
 - UI: Welcome, Signup, Login, Home (Duolingo path), Daily Review (3D flip + rating + flying-plane summary), Dashboard, Exams, Profile, Scan. [DONE]
 - Tested: 17/17 backend pytest + frontend E2E passed.
 
+## Implemented (2026-06 — iteration 2)
+- Milestone Badges: GET /api/badges (10 badges from streak/mastered/reviews/xp), grid on Profile with earned/locked + progress. [DONE, verified]
+- PDF Scanning: /decks/generate accepts application/pdf (Gemini reads all pages via temp file); Scan screen "Import PDF" via expo-document-picker + expo-file-system. [DONE, verified end-to-end — 9 cards from a 6-line PDF]
+- Offline Review: src/offline.ts caches today's queue + queues review submissions offline (netinfo), flushes on Home load / reconnect; offline banner + local XP credit in review. [DONE]
+- Due Reminders: src/notifications.ts daily 6PM local reminder + permission handling; toggle on Profile. (Fully fires only on a native build, limited in Expo Go.) [DONE]
+- Derja Voice: casual Algerian Derja cheer phrases (DERJA_CHEERS) shown after good/easy ratings + session-done line on summary. [DONE]
+
 ## Backlog (prioritized)
 - P1: Local push/notification reminders (cards due / streak-at-risk) — requires deployed build.
 - P1: Offline cache of today's due cards (works without connectivity, sync on reconnect).

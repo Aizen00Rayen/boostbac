@@ -110,7 +110,51 @@ const STRINGS: Record<string, { ar: string; fr: string }> = {
   logout: { ar: "تسجيل الخروج", fr: "Déconnexion" },
   editGoal: { ar: "الهدف اليومي (بطاقات)", fr: "Objectif quotidien (cartes)" },
   member: { ar: "طالب في بوست باك", fr: "Étudiant BoostBac" },
+  // badges
+  badges: { ar: "الأوسمة", fr: "Badges" },
+  badge_first_deck: { ar: "أول مجموعة", fr: "1er paquet" },
+  badge_streak_3: { ar: "سلسلة 3 أيام", fr: "Série de 3" },
+  badge_streak_7: { ar: "سلسلة 7 أيام", fr: "Série de 7" },
+  badge_streak_30: { ar: "سلسلة 30 يومًا", fr: "Série de 30" },
+  badge_reviews_50: { ar: "50 مراجعة", fr: "50 révisions" },
+  badge_reviews_200: { ar: "200 مراجعة", fr: "200 révisions" },
+  badge_mastered_10: { ar: "10 متقنة", fr: "10 maîtrisées" },
+  badge_mastered_50: { ar: "50 متقنة", fr: "50 maîtrisées" },
+  badge_mastered_100: { ar: "100 متقنة", fr: "100 maîtrisées" },
+  badge_xp_500: { ar: "500 نقطة", fr: "500 XP" },
+  // reminders
+  reminders: { ar: "تذكيرات المراجعة", fr: "Rappels de révision" },
+  remindersSub: { ar: "تذكير لطيف كل يوم على الساعة 6 مساءً", fr: "Un rappel doux chaque jour à 18h" },
+  enable: { ar: "تفعيل", fr: "Activer" },
+  enabled: { ar: "مفعّلة", fr: "Activés" },
+  notifDenied: { ar: "فعّل الإشعارات من الإعدادات", fr: "Active les notifications dans les réglages" },
+  // offline
+  offline: { ar: "غير متصل — سنزامن لاحقًا", fr: "Hors ligne — synchro plus tard" },
+  synced: { ar: "تمت مزامنة مراجعاتك", fr: "Révisions synchronisées" },
+  // pdf
+  pdfUpload: { ar: "رفع PDF", fr: "Importer un PDF" },
+  // notification content
+  notifTitle: { ar: "وقت المراجعة! 🛩️", fr: "C'est l'heure de réviser ! 🛩️" },
+  notifBody: { ar: "بطاقاتك تنتظرك. حافظ على سلسلتك!", fr: "Tes cartes t'attendent. Garde ta série !" },
 };
+
+// Casual Algerian Derja encouragement — shown during reviews regardless of UI language.
+export const DERJA_CHEERS = [
+  "صح راك تقدّم! 💪",
+  "برافو عليك، واصل!",
+  "هكذا خويا، مليح بزاف!",
+  "راك تكسّر، كمّل!",
+  "يا الوحش! 🔥",
+  "شطارة! باقي شويّة",
+  "نعم! راك في السكّة",
+  "واو، حافظ على الرِّيتم!",
+];
+
+export const DERJA_SESSION_DONE = "مبروك! درت خدمة نظيفة اليوم 🛩️";
+
+export function randomCheer(): string {
+  return DERJA_CHEERS[Math.floor(Math.random() * DERJA_CHEERS.length)];
+}
 
 type Ctx = {
   lang: Lang;

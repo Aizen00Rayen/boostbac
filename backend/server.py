@@ -252,8 +252,8 @@ async def update_profile(inp: ProfileUpdate, user: CurrentUser):
 # AI flashcard generation
 # --------------------------------------------------------------------------
 class GenerateInput(BaseModel):
-    image_base64: str  # data (no prefix) or with data-uri prefix
-    mime_type: Optional[str] = "image/jpeg"
+    image_base64: str  # base64 of image OR pdf (no data-uri prefix needed)
+    mime_type: Optional[str] = "image/jpeg"  # image/jpeg | image/png | application/pdf
     hint: Optional[str] = None  # optional subject hint
 
 
@@ -297,8 +297,9 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-async def call_gemini_cards(image_b64: str, mime: str, hint: Optional[str]) -> dict:
-    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> dict:
+    import tempfile
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
 
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
@@ -310,9 +311,23 @@ async def call_gemini_cards(image_b64: str, mime: str, hint: Optional[str]) -> d
     if hint:
         prompt += f"\nThe student says this is about: {hint}"
 
-    msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=image_b64)])
-    resp = await chat.send_message(msg)
-    return _extract_json(resp if isinstance(resp, str) else str(resp))
+    tmp_path = None
+    try:
+        if mime == "application/pdf":
+            # Gemini reads PDFs (all pages) via a file path.
+            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            with os.fdopen(fd, "wb") as f:
+                f.write(base64.b64decode(file_b64))
+            content = FileContentWithMimeType(file_path=tmp_path, mime_type="application/pdf")
+            prompt += "\nThis is a multi-page PDF lesson — cover concepts from ALL pages."
+        else:
+            content = ImageContent(image_base64=file_b64)
+        msg = UserMessage(text=prompt, file_contents=[content])
+        resp = await chat.send_message(msg)
+        return _extract_json(resp if isinstance(resp, str) else str(resp))
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 @api.post("/decks/generate")
@@ -328,7 +343,7 @@ async def generate_deck(inp: GenerateInput, user: CurrentUser):
 
     cards = parsed.get("cards") or []
     if not cards:
-        raise HTTPException(status_code=422, detail="No cards could be generated from this image.")
+        raise HTTPException(status_code=422, detail="No cards could be generated from this document.")
 
     deck_id = gen_id("deck_")
     subject = parsed.get("subject", "General")
@@ -726,6 +741,50 @@ async def submit_exam(inp: ExamSubmit, user: CurrentUser):
 async def exam_history(user: CurrentUser):
     exams = await db.exams.find({"user_id": user["user_id"], "score": {"$ne": None}}, {"_id": 0}).sort("taken_at", -1).to_list(50)
     return exams
+
+
+# --------------------------------------------------------------------------
+# Milestone badges
+# --------------------------------------------------------------------------
+BADGE_DEFS = [
+    {"id": "first_deck", "icon": "documents", "metric": "total_cards", "target": 1},
+    {"id": "streak_3", "icon": "flame", "metric": "longest_streak", "target": 3},
+    {"id": "streak_7", "icon": "flame", "metric": "longest_streak", "target": 7},
+    {"id": "streak_30", "icon": "flame", "metric": "longest_streak", "target": 30},
+    {"id": "reviews_50", "icon": "repeat", "metric": "total_reviews", "target": 50},
+    {"id": "reviews_200", "icon": "repeat", "metric": "total_reviews", "target": 200},
+    {"id": "mastered_10", "icon": "ribbon", "metric": "mastered", "target": 10},
+    {"id": "mastered_50", "icon": "ribbon", "metric": "mastered", "target": 50},
+    {"id": "mastered_100", "icon": "trophy", "metric": "mastered", "target": 100},
+    {"id": "xp_500", "icon": "flash", "metric": "xp", "target": 500},
+]
+
+
+@api.get("/badges")
+async def badges(user: CurrentUser):
+    cards = await db.cards.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(5000)
+    total_reviews = await db.review_logs.count_documents({"user_id": user["user_id"]})
+    streak = await db.streaks.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
+    metrics = {
+        "total_cards": len(cards),
+        "mastered": sum(1 for c in cards if c.get("repetitions", 0) >= 3),
+        "total_reviews": total_reviews,
+        "longest_streak": streak.get("longest_streak", 0),
+        "xp": user.get("xp", 0),
+    }
+    out = []
+    for b in BADGE_DEFS:
+        val = metrics.get(b["metric"], 0)
+        out.append({
+            "id": b["id"],
+            "icon": b["icon"],
+            "target": b["target"],
+            "value": val,
+            "earned": val >= b["target"],
+            "progress": min(1.0, round(val / b["target"], 2)) if b["target"] else 1.0,
+        })
+    earned_count = sum(1 for b in out if b["earned"])
+    return {"badges": out, "earned_count": earned_count, "total": len(out)}
 
 
 @api.get("/")

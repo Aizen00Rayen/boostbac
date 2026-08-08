@@ -3,6 +3,8 @@ import { View, StyleSheet, Pressable, ScrollView, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -64,6 +66,17 @@ export default function Scan() {
     });
     if (!res.canceled && res.assets[0]?.base64) {
       await generate(res.assets[0].base64, res.assets[0].mimeType || "image/jpeg");
+    }
+  };
+
+  const pickPdf = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: true });
+      if (res.canceled || !res.assets?.[0]) return;
+      const b64 = await FileSystem.readAsStringAsync(res.assets[0].uri, { encoding: FileSystem.EncodingType.Base64 });
+      await generate(b64, "application/pdf");
+    } catch (e: any) {
+      setError(e?.message || "Error");
     }
   };
 
@@ -148,6 +161,9 @@ export default function Scan() {
       <Pressable onPress={pickGallery} style={{ marginTop: spacing.lg }}>
         <RText weight="bold" style={{ color: colors.brand }}>{t("fromGallery")}</RText>
       </Pressable>
+      <Pressable testID="pick-pdf-fallback" onPress={pickPdf} style={{ marginTop: spacing.md }}>
+        <RText weight="bold" style={{ color: colors.brand }}>{t("pdfUpload")}</RText>
+      </Pressable>
     </View>
   );
 
@@ -179,7 +195,9 @@ export default function Scan() {
             <Pressable testID="take-photo" onPress={takePhoto} style={[styles.shutter, glow(colors.brand, 16)]}>
               <View style={styles.shutterInner} />
             </Pressable>
-            <View style={{ width: 52 }} />
+            <Pressable testID="pick-pdf" onPress={pickPdf} style={styles.galleryBtn}>
+              <Ionicons name="document-text" size={24} color={colors.onSurface} />
+            </Pressable>
           </View>
         </View>
       )}

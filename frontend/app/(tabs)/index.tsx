@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "@/src/api";
+import { flushPending } from "@/src/offline";
 import { useI18n } from "@/src/i18n";
 import { useAuth } from "@/src/context/AuthContext";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
@@ -37,6 +38,7 @@ export default function HomeScreen() {
   const load = useCallback(async () => {
     try {
       setError(false);
+      flushPending(); // sync any offline reviews
       const d = await api<Home>("/home");
       setData(d);
     } catch {
