@@ -1,0 +1,154 @@
+{
+  "app_name": "BoostBac",
+  "personality": "7 Dark-First Utility mixed with 4 Tactile / Playful component shapes",
+  "personality_one_liner": "An energetic yet calm, dark-themed gamified study companion that turns exam stress into a structured, rewarding daily flight.",
+  "color": {
+    "surface": "#0A1420",
+    "onSurface": "#FFFFFF",
+    "surfaceSecondary": "#152336",
+    "onSurfaceSecondary": "#C9EEFA",
+    "surfaceTertiary": "#1C2E45",
+    "onSurfaceTertiary": "#2DD4E8",
+    "surfaceInverse": "#FFFFFF",
+    "onSurfaceInverse": "#0A1420",
+    "brand": "#2DD4E8",
+    "brandPrimary": "#2DD4E8",
+    "onBrandPrimary": "#0A1420",
+    "brandSecondary": "#158C9B",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#0F3B45",
+    "onBrandTertiary": "#2DD4E8",
+    "success": "#34D399",
+    "onSuccess": "#0A1420",
+    "warning": "#FBBF24",
+    "onWarning": "#0A1420",
+    "error": "#F87171",
+    "onError": "#0A1420",
+    "info": "#60A5FA",
+    "onInfo": "#0A1420",
+    "border": "#1C2E45",
+    "borderStrong": "#2DD4E8",
+    "divider": "#152336"
+  },
+  "typography": {
+    "displayFontFamily": "Nunito",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous tactile padding for gamified tap targets. Consistent vertical rhythm using 8pt grid. Safe area clear padding at the bottom.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use blur on bottom tab bar to allow the scrolling gamified path to sit beautifully underneath",
+      "Use glass effect for bottom sheet handles and the sticky bottom CTA container",
+      "Ensure a dark tint opacity (>= 75% of #0A1420) behind the glass to maintain readability of text overlaid on the blur"
+    ],
+    "dont's": [
+      "Do not use glass for the flashcard body itself to maintain pure contrast",
+      "Do not apply blur to body text regions or dense analytic graphs"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "A Duolingo-style queue showing the daily study review path, streak, and quick stats.",
+      "states": {
+        "loading": "A dark skeletal path with shimmering teal accents.",
+        "empty": "Paper airplane mascot resting safely, stating 'Queue clear for today!' with a primary CTA to 'Scan Notes'.",
+        "error": "Calm error message with 'Retry Connection' button."
+      },
+      "layout": "RTL Layout default. Top Sticky Header: Flex-row with Goal ring, Streak counter (paper airplane icon), and XP total in brand colors. Middle: Scrollable vertical timeline/path. Nodes represent 'Decks to review today' (using surfaceSecondary with cyan active states). Bottom: Sticky floating primary CTA 'Scan & Generate Cards' centered over a glass background, above the tab bar."
+    },
+    {
+      "name": "DailyReview",
+      "purpose": "Focus-driven flashcard study session using spaced repetition (Again/Hard/Good/Easy).",
+      "states": {
+        "loading": "Centered spinner over surfaceSecondary.",
+        "empty": "Session complete view: celebratory paper airplane taking flight with XP gained.",
+        "error": "Error loading deck, retry CTA."
+      },
+      "layout": "Full screen modal/stack. Top: Thin progress bar (cyan) indicating session length (no timers). Center: A large tactile flashcard (surfaceSecondary, radius lg) taking up 60% of the screen. Tap to 3D flip. Front is question, Back is answer. Bottom: Upon flipping, a row of 4 equally weighted rounded buttons appears (Again, Hard, Good, Easy) utilizing muted tonal background chips to avoid high-stress bright red. Use subtle borderStrong on 'Good' as default recommended."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "Analytics showing forgetting curves, weak subjects heatmap, and overall progress.",
+      "states": {
+        "loading": "Graph skeleton loading.",
+        "empty": "No data yet; prompt to complete a review session.",
+        "error": "Unable to load analytics."
+      },
+      "layout": "Scrollable. Top card: Smooth line chart (forgetting curve) with neon cyan line on dark background. Middle: Weakness heatmap using tags/chips (surfaceTertiary) where darker teal indicates mastery and lighter/warning colors indicate weak Bac subjects."
+    },
+    {
+      "name": "ScanAndGenerate",
+      "purpose": "Upload photos of notes for Gemini AI to extract and auto-generate flashcards.",
+      "states": {
+        "loading": "Paper airplane flying across the screen with scanning scanlines effect over the document.",
+        "empty": "Camera viewfinder open with a framed guide.",
+        "error": "Failed to parse text, Try again."
+      },
+      "layout": "Viewfinder taking top 70%. Bottom sheet containing 'Capture' button and 'Gallery' icon. Post-capture, transition to a preview list of generated flashcards with edit/save icons."
+    }
+  ],
+  "images": {
+    "hero_paper_airplane": {
+      "url": "https://images.unsplash.com/photo-1589828994379-7a8869c4f519?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxwYXBlciUyMGFpcnBsYW5lJTIwZGFyayUyMGJsdWUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc4NjIxMDE1OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Paper airplane over dark blue background"
+    },
+    "student_studying": {
+      "url": "https://images.pexels.com/photos/4384147/pexels-photo-4384147.jpeg",
+      "alt": "Student studying in a dark room"
+    },
+    "cyan_pattern": {
+      "url": "https://images.unsplash.com/photo-1560036043-1a6b17791807?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxuZW9uJTIwY3lhbiUyMGxpbmUlMjBwYXR0ZXJufGVufDB8fHx8MTc4NjIxMDE1OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Cyan neon line pattern"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the dark theme: surface must be #0A1420 and brand primary #2DD4E8. Ensure WCAG contrast between secondary text (#C9EEFA) and the dark backgrounds.",
+    "Implement I18nManager.forceRTL(true) early in the setup as the default UI language is Arabic. Ensure all flex-row layouts implicitly reverse correctly or are explicitly mapped for RTL support.",
+    "For the gamified Duolingo-style 'Home' screen, use a vertical node path. Center the nodes and connect them with vertical lines. Use Phosphor icons inside circular nodes.",
+    "For the 'DailyReview' flashcard screen, utilize react-native-reanimated for a smooth 3D flip card animation. When flipped, fade-in the 4 Spaced Repetition (SM-2) buttons.",
+    "Keep the tone calm—avoid harsh reds for 'Again/Hard' buttons. Instead, use surfaceTertiary chips with subtle muted colored text or borders.",
+    "Do NOT use indigo, violet, or pure navy blue beyond the specified #0A1420 and #152336 background hues.",
+    "Incorporate the paper-airplane mascot natively using Phosphor 'PaperPlaneRight' icon for the streak counter and loading transitions.",
+    "Use Nunito for headings (bold, rounded, friendly) and Plus Jakarta Sans for high legibility body text.",
+    "All interactive elements (cards, bottom sheet) must use large tactile radii (md: 16, lg: 24)."
+  ]
+}
