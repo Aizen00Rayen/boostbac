@@ -20,6 +20,7 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [stream, setStream] = useState<string>("science");
+  const [role, setRole] = useState<string>("student");
   const [loading, setLoading] = useState(false);
   const [gLoading, setGLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -32,8 +33,8 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      await register(name.trim(), email.trim(), password, stream);
-      router.replace("/(tabs)");
+      await register(name.trim(), email.trim(), password, stream, role);
+      router.replace(role === "teacher" ? "/pending" : "/(tabs)");
     } catch (e: any) {
       setErr(e?.message || "Error");
     } finally {
@@ -72,6 +73,16 @@ export default function Signup() {
         </RText>
 
         <View style={styles.form}>
+          <View style={styles.roleRow}>
+            {(["student", "teacher"] as const).map((r) => (
+              <Pressable key={r} testID={`role-${r}`} onPress={() => setRole(r)} style={[styles.roleChip, role === r && styles.streamChipActive]}>
+                <Ionicons name={r === "student" ? "school-outline" : "person-outline"} size={18} color={role === r ? colors.onBrandPrimary : colors.onSurfaceSecondary} />
+                <RText weight="bold" style={{ color: role === r ? colors.onBrandPrimary : colors.onSurfaceSecondary }}>
+                  {t(r === "student" ? "iAmStudent" : "iAmTeacher")}
+                </RText>
+              </Pressable>
+            ))}
+          </View>
           <Field testID="signup-name" placeholder={t("name")} value={name} onChangeText={setName} />
           <Field
             testID="signup-email"
@@ -141,6 +152,8 @@ const styles = StyleSheet.create({
   title: { fontSize: font["4xl"], color: colors.onSurface, marginTop: spacing.lg },
   subtitle: { fontSize: font.lg, color: colors.onSurfaceSecondary, marginTop: spacing.xs },
   form: { marginTop: spacing.xl, gap: spacing.md },
+  roleRow: { flexDirection: "row", gap: spacing.md },
+  roleChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: spacing.lg, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
   label: { color: colors.onSurface, fontSize: font.lg, marginTop: spacing.sm },
   streamWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   streamChip: {

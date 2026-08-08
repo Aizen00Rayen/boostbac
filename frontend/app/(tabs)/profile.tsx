@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
 import { api } from "@/src/api";
 import { useI18n, Lang } from "@/src/i18n";
@@ -33,6 +34,7 @@ export default function Profile() {
   const [reminderOn, setReminderOn] = useState(false);
   const [reminderHour, setReminderHour] = useState(18);
   const [notifMsg, setNotifMsg] = useState("");
+  const [showDate, setShowDate] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -230,6 +232,38 @@ export default function Profile() {
             </Pressable>
           ))}
         </View>
+
+        {/* Exam date */}
+        <RText weight="bold" style={styles.sectionLabel}>{t("examDate")}</RText>
+        {Platform.OS === "web" ? (
+          <Field
+            testID="exam-date-input"
+            placeholder="YYYY-MM-DD"
+            defaultValue={user.exam_date || ""}
+            onEndEditing={(e) => {
+              const v = e.nativeEvent.text.trim();
+              if (/^\d{4}-\d{2}-\d{2}$/.test(v)) updateProfile({ exam_date: v });
+            }}
+          />
+        ) : (
+          <Pressable testID="exam-date-btn" onPress={() => setShowDate(true)} style={styles.reminderRow}>
+            <Ionicons name="calendar" size={20} color={colors.brand} />
+            <RText weight="bold" style={{ color: user.exam_date ? colors.onSurface : colors.muted, marginHorizontal: spacing.md, flex: 1 }}>
+              {user.exam_date ? new Date(user.exam_date).toLocaleDateString() : t("setExamDate")}
+            </RText>
+            <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+          </Pressable>
+        )}
+        {showDate && Platform.OS !== "web" && (
+          <DateTimePicker
+            value={user.exam_date ? new Date(user.exam_date) : new Date()}
+            mode="date"
+            onChange={(_e, date) => {
+              setShowDate(Platform.OS === "ios");
+              if (date) updateProfile({ exam_date: date.toISOString().slice(0, 10) });
+            }}
+          />
+        )}
 
         {/* Reminders */}
         <RText weight="bold" style={styles.sectionLabel}>{t("reminders")}</RText>

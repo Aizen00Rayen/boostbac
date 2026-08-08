@@ -14,8 +14,15 @@ export default function Index() {
 
   useEffect(() => {
     if (loading || !ready) return;
-    if (user) router.replace("/(tabs)");
-    else router.replace("/welcome");
+    if (!user) {
+      router.replace("/welcome");
+    } else if (user.role === "admin") {
+      router.replace("/admin");
+    } else if (user.role === "teacher" && user.status !== "approved") {
+      router.replace("/pending");
+    } else {
+      router.replace("/(tabs)");
+    }
   }, [user, loading, ready]);
 
   return (

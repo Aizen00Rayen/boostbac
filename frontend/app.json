@@ -23,7 +23,11 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.bacailearn.dttpl0",
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES"]
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -52,7 +56,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#0A1420"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

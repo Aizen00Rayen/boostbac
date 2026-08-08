@@ -58,6 +58,7 @@ class RegisterInput(BaseModel):
     email: EmailStr
     password: str
     stream: Optional[str] = "science"
+    role: Optional[str] = "student"  # student | teacher
 
 
 class LoginInput(BaseModel):
@@ -74,6 +75,7 @@ class ProfileUpdate(BaseModel):
     stream: Optional[str] = None
     language: Optional[str] = None
     daily_goal: Optional[int] = None
+    exam_date: Optional[str] = None  # ISO date, e.g. 2026-06-15
 
 
 def public_user(u: dict) -> dict:
@@ -86,6 +88,9 @@ def public_user(u: dict) -> dict:
         "daily_goal": u.get("daily_goal", 20),
         "xp": u.get("xp", 0),
         "picture": u.get("picture"),
+        "role": u.get("role", "student"),
+        "status": u.get("status", "active"),
+        "exam_date": u.get("exam_date"),
         "created_at": u.get("created_at"),
     }
 
@@ -122,6 +127,26 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
+def require_role(*roles: str):
+    async def dep(user: CurrentUser) -> dict:
+        if user.get("role") not in roles:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return user
+    return dep
+
+
+async def approved_teacher(user: CurrentUser) -> dict:
+    if user.get("role") != "teacher":
+        raise HTTPException(status_code=403, detail="Teachers only")
+    if user.get("status") != "approved":
+        raise HTTPException(status_code=403, detail="Teacher approval required")
+    return user
+
+
+AdminUser = Annotated[dict, Depends(require_role("admin"))]
+ApprovedTeacher = Annotated[dict, Depends(approved_teacher)]
+
+
 # --------------------------------------------------------------------------
 # SM-2 spaced repetition
 # --------------------------------------------------------------------------
@@ -155,11 +180,15 @@ RATING_XP = {"again": 2, "hard": 5, "good": 8, "easy": 10}
 # --------------------------------------------------------------------------
 @api.post("/auth/register")
 async def register(inp: RegisterInput):
+    role = (inp.role or "student").lower()
+    if role not in ("student", "teacher"):
+        raise HTTPException(status_code=403, detail="Invalid role")
     existing = await db.users.find_one({"email": inp.email.lower()})
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
     pw_hash = bcrypt.hashpw(inp.password.encode(), bcrypt.gensalt()).decode()
     user_id = gen_id("user_")
+    status = "pending" if role == "teacher" else "active"
     doc = {
         "user_id": user_id,
         "name": inp.name,
@@ -169,13 +198,16 @@ async def register(inp: RegisterInput):
         "language": "ar",
         "daily_goal": 20,
         "xp": 0,
+        "role": role,
+        "status": status,
         "auth_provider": "email",
         "created_at": iso(now_utc()),
     }
     await db.users.insert_one(doc)
-    await db.streaks.insert_one({
-        "user_id": user_id, "current_streak": 0, "longest_streak": 0, "last_active_date": None,
-    })
+    if role == "student":
+        await db.streaks.insert_one({
+            "user_id": user_id, "current_streak": 0, "longest_streak": 0, "last_active_date": None,
+        })
     token = await create_session(user_id)
     return {"session_token": token, "user": public_user(doc)}
 
@@ -589,6 +621,20 @@ async def home(user: CurrentUser):
             "deck_id": d["deck_id"], "deck_name": d["deck_name"], "subject": d["subject"],
             "topic": d.get("topic", ""), "total_cards": len(dcards), "due_cards": due,
         })
+    # exam countdown
+    exam_date = user.get("exam_date")
+    days_left = None
+    pace = None
+    if exam_date:
+        try:
+            ed = datetime.fromisoformat(exam_date).date()
+            days_left = (ed - now.date()).days
+            active = sum(1 for c in cards if c.get("repetitions", 0) < 3)
+            if days_left and days_left > 0:
+                pace = max(user.get("daily_goal", 20), -(-active // days_left))  # ceil
+        except Exception:
+            pass
+
     return {
         "total_due": total_due,
         "cards_reviewed_today": logs_today,
@@ -598,6 +644,9 @@ async def home(user: CurrentUser):
         "longest_streak": streak.get("longest_streak", 0),
         "total_cards": len(cards),
         "mastered_cards": mastered,
+        "exam_date": exam_date,
+        "days_to_exam": days_left,
+        "suggested_pace": pace,
         "decks": deck_out,
     }
 
@@ -822,6 +871,219 @@ async def leaderboard(user: CurrentUser):
     return {"leaderboard": rows[:50], "me": me, "total_players": len(rows)}
 
 
+# --------------------------------------------------------------------------
+# Admin: teacher approval
+# --------------------------------------------------------------------------
+@api.get("/admin/teachers")
+async def admin_teachers(admin: AdminUser, status: Optional[str] = None):
+    q: dict = {"role": "teacher"}
+    if status:
+        q["status"] = status
+    teachers = await db.users.find(q, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    return [public_user(t) for t in teachers]
+
+
+@api.get("/admin/stats")
+async def admin_stats(admin: AdminUser):
+    pending = await db.users.count_documents({"role": "teacher", "status": "pending"})
+    teachers = await db.users.count_documents({"role": "teacher", "status": "approved"})
+    students = await db.users.count_documents({"role": "student"})
+    resources = await db.resources.count_documents({})
+    return {"pending_teachers": pending, "approved_teachers": teachers, "students": students, "resources": resources}
+
+
+@api.post("/admin/teachers/{teacher_id}/approve")
+async def approve_teacher(teacher_id: str, admin: AdminUser):
+    r = await db.users.update_one(
+        {"user_id": teacher_id, "role": "teacher"},
+        {"$set": {"status": "approved", "approved_at": iso(now_utc())}},
+    )
+    if r.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    return {"status": "approved"}
+
+
+@api.post("/admin/teachers/{teacher_id}/reject")
+async def reject_teacher(teacher_id: str, admin: AdminUser):
+    r = await db.users.update_one(
+        {"user_id": teacher_id, "role": "teacher"},
+        {"$set": {"status": "rejected", "rejected_at": iso(now_utc())}},
+    )
+    if r.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    return {"status": "rejected"}
+
+
+# --------------------------------------------------------------------------
+# Teacher resources (exams / exercises / solutions) + public feed
+# --------------------------------------------------------------------------
+class ResourceInput(BaseModel):
+    type: str  # exam | exercise | solution
+    subject: str
+    stream: Optional[str] = "all"
+    title: str
+    description: Optional[str] = ""
+    attachment_base64: Optional[str] = None
+    attachment_mime: Optional[str] = None  # image/jpeg | image/png | application/pdf
+
+
+@api.post("/resources")
+async def create_resource(inp: ResourceInput, teacher: ApprovedTeacher):
+    rid = gen_id("res_")
+    doc = {
+        "resource_id": rid,
+        "teacher_id": teacher["user_id"],
+        "teacher_name": teacher.get("name"),
+        "type": inp.type,
+        "subject": inp.subject,
+        "stream": inp.stream or "all",
+        "title": inp.title,
+        "description": inp.description or "",
+        "attachment_base64": inp.attachment_base64,
+        "attachment_mime": inp.attachment_mime,
+        "has_attachment": bool(inp.attachment_base64),
+        "created_at": iso(now_utc()),
+    }
+    await db.resources.insert_one(doc)
+    doc.pop("_id", None)
+    doc.pop("attachment_base64", None)
+    return doc
+
+
+def _resource_card(r: dict) -> dict:
+    return {
+        "resource_id": r["resource_id"], "teacher_id": r["teacher_id"], "teacher_name": r.get("teacher_name"),
+        "type": r["type"], "subject": r["subject"], "stream": r.get("stream", "all"),
+        "title": r["title"], "description": r.get("description", ""),
+        "has_attachment": r.get("has_attachment", False), "attachment_mime": r.get("attachment_mime"),
+        "created_at": r.get("created_at"),
+    }
+
+
+@api.get("/resources")
+async def list_resources(user: CurrentUser, type: Optional[str] = None, subject: Optional[str] = None):
+    q: dict = {}
+    if type:
+        q["type"] = type
+    if subject:
+        q["subject"] = subject
+    rows = await db.resources.find(q, {"_id": 0, "attachment_base64": 0}).sort("created_at", -1).to_list(300)
+    return [_resource_card(r) for r in rows]
+
+
+@api.get("/resources/mine")
+async def my_resources(teacher: ApprovedTeacher):
+    rows = await db.resources.find({"teacher_id": teacher["user_id"]}, {"_id": 0, "attachment_base64": 0}).sort("created_at", -1).to_list(300)
+    return [_resource_card(r) for r in rows]
+
+
+@api.get("/resources/{resource_id}")
+async def get_resource(resource_id: str, user: CurrentUser):
+    r = await db.resources.find_one({"resource_id": resource_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(status_code=404, detail="Not found")
+    return r  # includes attachment_base64 for viewing
+
+
+@api.delete("/resources/{resource_id}")
+async def delete_resource(resource_id: str, teacher: ApprovedTeacher):
+    await db.resources.delete_one({"resource_id": resource_id, "teacher_id": teacher["user_id"]})
+    return {"ok": True}
+
+
+@api.get("/teachers")
+async def list_teachers(user: CurrentUser):
+    rows = await db.users.find({"role": "teacher", "status": "approved"}, {"_id": 0, "password_hash": 0}).to_list(500)
+    out = []
+    for t in rows:
+        count = await db.resources.count_documents({"teacher_id": t["user_id"]})
+        out.append({"user_id": t["user_id"], "name": t.get("name"), "picture": t.get("picture"),
+                    "subject": t.get("stream"), "resources": count})
+    return out
+
+
+# --------------------------------------------------------------------------
+# 1:1 chat (student <-> teacher), polling based
+# --------------------------------------------------------------------------
+class StartChatInput(BaseModel):
+    other_user_id: str
+
+
+def _conv_id(a: str, b: str) -> str:
+    return "conv_" + "_".join(sorted([a, b]))
+
+
+@api.post("/chat/start")
+async def start_chat(inp: StartChatInput, user: CurrentUser):
+    other = await db.users.find_one({"user_id": inp.other_user_id}, {"_id": 0, "password_hash": 0})
+    if not other:
+        raise HTTPException(status_code=404, detail="User not found")
+    cid = _conv_id(user["user_id"], other["user_id"])
+    existing = await db.conversations.find_one({"conversation_id": cid}, {"_id": 0})
+    if not existing:
+        await db.conversations.insert_one({
+            "conversation_id": cid,
+            "participants": [user["user_id"], other["user_id"]],
+            "names": {user["user_id"]: user.get("name"), other["user_id"]: other.get("name")},
+            "last_message": None,
+            "updated_at": iso(now_utc()),
+            "created_at": iso(now_utc()),
+        })
+    return {"conversation_id": cid, "other": {"user_id": other["user_id"], "name": other.get("name")}}
+
+
+@api.get("/chat/conversations")
+async def list_conversations(user: CurrentUser):
+    rows = await db.conversations.find({"participants": user["user_id"]}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    out = []
+    for c in rows:
+        other_id = next((p for p in c["participants"] if p != user["user_id"]), None)
+        out.append({
+            "conversation_id": c["conversation_id"],
+            "other_id": other_id,
+            "other_name": c.get("names", {}).get(other_id) or "User",
+            "last_message": c.get("last_message"),
+            "updated_at": c.get("updated_at"),
+        })
+    return out
+
+
+class MessageInput(BaseModel):
+    text: str
+
+
+@api.get("/chat/{conversation_id}/messages")
+async def get_messages(conversation_id: str, user: CurrentUser):
+    conv = await db.conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participants"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    msgs = await db.messages.find({"conversation_id": conversation_id}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    other_id = next((p for p in conv["participants"] if p != user["user_id"]), None)
+    return {"messages": msgs, "other_name": conv.get("names", {}).get(other_id) or "User"}
+
+
+@api.post("/chat/{conversation_id}/messages")
+async def send_message(conversation_id: str, inp: MessageInput, user: CurrentUser):
+    conv = await db.conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participants"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    msg = {
+        "message_id": gen_id("msg_"),
+        "conversation_id": conversation_id,
+        "sender_id": user["user_id"],
+        "sender_name": user.get("name"),
+        "text": inp.text,
+        "created_at": iso(now_utc()),
+    }
+    await db.messages.insert_one(msg)
+    await db.conversations.update_one(
+        {"conversation_id": conversation_id},
+        {"$set": {"last_message": inp.text[:120], "updated_at": iso(now_utc())}},
+    )
+    msg.pop("_id", None)
+    return msg
+
+
 @api.get("/")
 async def root():
     return {"message": "BoostBac API", "status": "ok"}
@@ -847,6 +1109,25 @@ async def startup():
     await db.cards.create_index("user_id")
     await db.cards.create_index("deck_id")
     await db.review_logs.create_index("user_id")
+    await db.messages.create_index("conversation_id")
+    await db.conversations.create_index("participants")
+    # idempotent admin seed
+    admin_email = os.environ.get("ADMIN_EMAIL", "").lower()
+    admin_pw = os.environ.get("ADMIN_PASSWORD", "")
+    if admin_email and admin_pw:
+        existing = await db.users.find_one({"email": admin_email})
+        if not existing:
+            await db.users.insert_one({
+                "user_id": gen_id("user_"),
+                "name": "Admin",
+                "email": admin_email,
+                "password_hash": bcrypt.hashpw(admin_pw.encode(), bcrypt.gensalt()).decode(),
+                "role": "admin",
+                "status": "active",
+                "auth_provider": "email",
+                "created_at": iso(now_utc()),
+            })
+            logger.info("Seeded admin account")
     logger.info("BoostBac API started")
 
 

@@ -23,6 +23,9 @@ type Home = {
   current_streak: number;
   mastered_cards: number;
   total_cards: number;
+  exam_date?: string | null;
+  days_to_exam?: number | null;
+  suggested_pace?: number | null;
   decks: Deck[];
 };
 
@@ -86,6 +89,9 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <Image source={require("../../assets/images/boostbac.png")} style={styles.headerLogo} contentFit="contain" />
           <View style={styles.statsRow}>
+            <Pressable testID="open-leaderboard" onPress={() => router.push("/leaderboard")} style={styles.statPill}>
+              <Ionicons name="trophy" size={15} color={colors.brand} />
+            </Pressable>
             <View style={[styles.statPill, glow(colors.brand, 6)]} testID="streak-pill">
               <PaperPlane size={16} color={d.current_streak > 0 ? colors.brand : colors.muted} />
               <RText weight="heavy" style={styles.statPillText}>
@@ -143,6 +149,39 @@ export default function HomeScreen() {
             )}
           </View>
         </Card>
+
+        {/* Exam countdown */}
+        {d.exam_date && d.days_to_exam != null ? (
+          <Card style={styles.countdownCard} testID="exam-countdown">
+            <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+              <View style={styles.countIcon}>
+                <Ionicons name="calendar" size={22} color={colors.brand} />
+              </View>
+              <View style={{ flex: 1 }}>
+                {d.days_to_exam > 0 ? (
+                  <>
+                    <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6 }}>
+                      <RText weight="heavy" style={{ color: colors.brand, fontSize: font["2xl"] }}>{d.days_to_exam}</RText>
+                      <RText weight="bold" style={{ color: colors.onSurfaceSecondary, marginBottom: 3 }}>{t("daysToExam")}</RText>
+                    </View>
+                    {d.suggested_pace ? (
+                      <RText style={{ color: colors.muted, fontSize: font.sm, marginTop: 2 }}>
+                        {t("pacePrefix")} {d.suggested_pace} {t("paceSuffix")}
+                      </RText>
+                    ) : null}
+                  </>
+                ) : (
+                  <RText weight="bold" style={{ color: colors.brand }}>{t("examToday")}</RText>
+                )}
+              </View>
+            </View>
+          </Card>
+        ) : (
+          <Pressable testID="set-exam-date" onPress={() => router.push("/(tabs)/profile")} style={styles.setExamRow}>
+            <Ionicons name="calendar-outline" size={20} color={colors.brand} />
+            <RText weight="bold" style={{ color: colors.brand }}>{t("setExamDate")}</RText>
+          </Pressable>
+        )}
 
         {/* Decks path */}
         <View style={styles.sectionHead}>
@@ -226,6 +265,9 @@ const styles = StyleSheet.create({
   heroBig: { color: colors.brand, fontSize: 52, lineHeight: 56 },
   heroSub: { color: colors.onSurfaceSecondary, fontSize: font.base, marginBottom: 10 },
   clearBox: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.brandTertiary, borderRadius: radius.md, paddingVertical: spacing.lg },
+  countdownCard: { marginTop: spacing.md },
+  countIcon: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  setExamRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: spacing.md, paddingVertical: spacing.md, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, borderStyle: "dashed" },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xl, marginBottom: spacing.md },
   sectionTitle: { color: colors.onSurface, fontSize: font.xl },
   emptyCard: { alignItems: "center", paddingVertical: spacing["2xl"] },

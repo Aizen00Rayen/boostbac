@@ -29,7 +29,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email.trim(), password);
-      router.replace("/(tabs)");
+      router.replace("/");
     } catch (e: any) {
       setErr(e?.message || "Error");
     } finally {

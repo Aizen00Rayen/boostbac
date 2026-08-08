@@ -34,8 +34,12 @@ export default function TabsLayout() {
           options={{ title: t("dashboard"), tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart" size={size} color={color} /> }}
         />
         <Tabs.Screen
+          name="community"
+          options={{ title: t("community"), tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} /> }}
+        />
+        <Tabs.Screen
           name="leaderboard"
-          options={{ title: t("leaderboard"), tabBarIcon: ({ color, size }) => <Ionicons name="trophy" size={size} color={color} /> }}
+          options={{ href: null }}
         />
         <Tabs.Screen
           name="exams"

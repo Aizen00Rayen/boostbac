@@ -15,6 +15,9 @@ export type User = {
   daily_goal: number;
   xp: number;
   picture?: string;
+  role: string;
+  status: string;
+  exam_date?: string | null;
   current_streak?: number;
   longest_streak?: number;
 };
@@ -22,7 +25,7 @@ export type User = {
 type Ctx = {
   user: User | null;
   loading: boolean;
-  register: (name: string, email: string, password: string, stream: string) => Promise<void>;
+  register: (name: string, email: string, password: string, stream: string, role: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -101,11 +104,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [handleSessionId, loadMe]);
 
-  const register = useCallback(async (name: string, email: string, password: string, stream: string) => {
+  const register = useCallback(async (name: string, email: string, password: string, stream: string, role: string) => {
     const res = await api<{ session_token: string; user: User }>("/auth/register", {
       method: "POST",
       auth: false,
-      body: { name, email, password, stream },
+      body: { name, email, password, stream, role },
     });
     await setToken(res.session_token);
     setUserState(res.user);
