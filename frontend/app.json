@@ -1,24 +1,29 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "BoostBac",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
-    "userInterfaceStyle": "automatic",
+    "scheme": "boostbac",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.bacailearn.dttpl0"
+      "bundleIdentifier": "com.emergent.bacailearn.dttpl0",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan your notes to auto-create flashcards",
+        "NSPhotoLibraryUsageDescription": "Upload note photos to create flashcards"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0A1420"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.bacailearn.dttpl0"
+      "package": "com.emergent.bacailearn.dttpl0",
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES"]
     },
     "web": {
       "bundler": "metro",
@@ -28,12 +33,24 @@
     "plugins": [
       "expo-router",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan your notes to auto-create flashcards"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Upload note photos to create flashcards"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-image.png",
-          "imageWidth": 200,
+          "image": "./assets/images/boostbac.png",
+          "imageWidth": 260,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#0A1420"
         }
       ]
     ],

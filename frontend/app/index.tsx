@@ -1,30 +1,33 @@
-import { Text, View, StyleSheet, Image } from "react-native";
-
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { useEffect } from "react";
+import { View, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { Image } from "expo-image";
+import { useAuth } from "@/src/context/AuthContext";
+import { useI18n } from "@/src/i18n";
+import { colors } from "@/src/theme";
+import { PaperPlaneLoader } from "@/src/components/graphics";
 
 export default function Index() {
-  console.log(EXPO_PUBLIC_BACKEND_URL, "EXPO_PUBLIC_BACKEND_URL");
+  const { user, loading } = useAuth();
+  const { ready } = useI18n();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading || !ready) return;
+    if (user) router.replace("/(tabs)");
+    else router.replace("/welcome");
+  }, [user, loading, ready]);
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../assets/images/app-image.png")}
-        style={styles.image}
-      />
+    <View style={styles.container} testID="splash-screen">
+      <Image source={require("../assets/images/boostbac.png")} style={styles.logo} contentFit="contain" />
+      <View style={{ height: 40 }} />
+      <PaperPlaneLoader size={40} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0c0c0c",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  image: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "contain",
-  },
+  container: { flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", padding: 24 },
+  logo: { width: 260, height: 130 },
 });

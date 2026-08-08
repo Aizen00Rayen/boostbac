@@ -1,0 +1,51 @@
+{
+  "summary": "First test run for BoostBac. Backend (17/17 tests, 100%): auth (register/login/me/duplicate-email/wrong-password), profile update+persistence, AI deck generation via Gemini vision (real study-notes JPEG, 5-12 cards returned in <30s), deck save→list, /home summary, /review/queue + /review/submit SM-2 correctness (ease_factor, interval, repetitions, next_review_date; XP increments 2/5/8/10 for again/hard/good/easy; streak touched), /review/complete bonus XP, /analytics (heatmap sorted by weakness + 14-day forgetting_curve + focus_subjects), /exams/generate (weighted) + /exams/submit (score+breakdown) + /exams/history. Frontend (mobile viewport 390x844): welcome (Arabic RTL default, FR/AR toggle), signup/login, Home (streak=1, XP=68 after test reviews, due-count updates, decks list, floating Scan CTA), Review (Arabic card rendered, flip available), Dashboard (heatmap + forgetting curve rendered), Exams tab (start-exam), Profile (stream/goal/language chips + logout-button visible). Scan screen shows expected 'camera permission required' fallback on web preview. Deprecated packages detected: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/home", "issue": "cards_reviewed_today counts by string-prefix on reviewed_at ISO datetimes ($gte 'YYYY-MM-DD'). Works because ISO ordering aligns, but a purpose-built index on reviewed date would be cleaner."},
+      {"endpoint": "GET /api/analytics", "issue": "review_logs.reviewed_at is stored as ISO string; day-bucketing uses str.startswith which is correct but not timezone-aware for users outside UTC."},
+      {"endpoint": "POST /api/decks/generate", "issue": "Stores image_base64[:200000] on the transient (unsaved) deck preview — fine, but SaveDeckInput.deck dict does not strip it, so a large base64 image can be persisted in decks collection if the client echoes back what /decks/generate returned. Consider trimming in /decks/save."},
+      {"endpoint": "GET /api/decks", "issue": "Loads all cards per deck in a Python loop (N+1). Fine for small volumes; a single aggregation would scale better."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home", "issues": ["Deck row long titles get truncated with ellipsis in RTL (Arabic) — acceptable but subject count line renders LTR '10 · Physics' which reads oddly in Arabic layout."]}
+    ],
+    "react_native_issues": [
+      {"component": "web-only warnings", "issue": "Console warns: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' and 'props.pointerEvents is deprecated. Use style.pointerEvents' and 'Invalid DOM property transform-origin (use transformOrigin)'. These come from RN Web rendering of the graphics/ProgressRing SVG and glow() helper. Non-blocking on native but should be cleaned up. Reference: /app/frontend/src/theme.ts (glow) and /app/frontend/app/(tabs)/index.tsx:198 pointerEvents='box-none'."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/gen_test_image.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Move `pointerEvents='box-none'` from prop to style prop in `/app/frontend/app/(tabs)/index.tsx` fabWrap to silence RN Web deprecation warning.",
+    "OPTIONAL: Replace `shadow*` StyleSheet keys with `boxShadow` (or wrap in Platform.select) in theme.ts / glow helper to silence RN Web deprecation warnings.",
+    "OPTIONAL: In SVG-based ProgressRing / PaperPlane, ensure `transformOrigin` (camelCase) is used, not the CSS-style `transform-origin`.",
+    "OPTIONAL: Add `testID` to each `<Tabs.Screen>` (via `tabBarButtonTestID` or custom tabBarButton) so future E2E can target bottom tabs directly.",
+    "OPTIONAL: In POST /api/decks/save, drop `image_base64` from the incoming deck dict before persisting to keep the decks collection small."
+  ],
+  "critical_code_review_comments": [
+    "server.py is a single 762-line file. It still fits, but is approaching the 700-line threshold — splitting into routers (auth, decks, review, analytics, exams) will help maintainability.",
+    "SM-2 implementation and XP/streak logic look correct: quality<3 resets reps and short-cycles; ease clamped to 1.3; streak resets when gap>1 day; longest_streak tracked. Verified end-to-end via API tests.",
+    "MongoDB ObjectId (`_id`) is consistently excluded via projections on every read — good.",
+    "All env vars sourced from environment (MONGO_URL, DB_NAME, EMERGENT_LLM_KEY, EXPO_PUBLIC_BACKEND_URL). No hardcoded URLs.",
+    "Google OAuth flow correctly consumes ?session_id= on web callback and via Linking on native.",
+    "review_submit does not gate the streak update to correct answers only — even an 'again' rating still counts as activity for streak. This matches Duolingo-style behavior; flagging in case product wants otherwise."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)",
+    "/app/backend/tests/gen_test_image.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100% for validated flows"},
+  "seed_data_creation": "Used shared test account test@boostbac.dz. Two Physics decks were created via /decks/generate + /decks/save (Newton's laws study notes JPEG); one was deleted at end of the API suite, the other remains and provided the 16-17 due cards seen on the Home screen during UI validation.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite is at /app/backend/tests/backend_test.py and runs with the repo pytest.ini (-n 2 --dist loadscope). It self-provisions the shared test account and self-generates a deck per worker via the `ensure_cards` fixture (Gemini call ~10-25s each). AI generation uses gemini-3-flash-preview via emergentintegrations LlmChat and EMERGENT_LLM_KEY. The scan screen cannot be exercised on web preview (camera permission gate) — validate via API. Bottom tab bar has no testIDs; navigate by URL (/(tabs)/dashboard etc.) or add testIDs before UI E2E."
+}
