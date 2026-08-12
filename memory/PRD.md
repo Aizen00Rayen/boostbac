@@ -5,8 +5,8 @@ Native mobile app "BoostBac": AI-powered, Duolingo-style active-recall & exam-pr
 
 ## Tech / Architecture
 - Frontend: Expo React Native (expo-router), reanimated flip cards, react-native-svg charts, react-native-keyboard-controller, expo-camera + expo-image-picker.
-- Backend: FastAPI + MongoDB (motor). Bearer session_token auth.
-- AI: Gemini 3 Flash (gemini-3-flash-preview) via emergentintegrations + EMERGENT_LLM_KEY, server-side only (OCR + concept extraction + flashcard generation).
+- Backend: FastAPI + Postgres (Supabase, via asyncpg). Bearer session_token auth.
+- AI: Gemini 2.5 Flash via the google-genai SDK + GEMINI_API_KEY, server-side only (OCR + concept extraction + flashcard generation).
 - i18n: custom string layer (ar/fr), Arabic default, RTL-aware text alignment.
 
 ## User Personas

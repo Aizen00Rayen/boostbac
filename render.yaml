@@ -7,10 +7,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: MONGO_URL
+      - key: DATABASE_URL
         sync: false
-      - key: DB_NAME
-        value: boostbac
       - key: GEMINI_API_KEY
         sync: false
       - key: ADMIN_EMAIL
