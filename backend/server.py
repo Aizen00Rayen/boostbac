@@ -14,7 +14,6 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator, EmailStr
 import bcrypt
-import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -26,8 +25,7 @@ mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
-EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 app = FastAPI(title="BoostBac API")
 api = APIRouter(prefix="/api")
@@ -64,10 +62,6 @@ class RegisterInput(BaseModel):
 class LoginInput(BaseModel):
     email: EmailStr
     password: str
-
-
-class SessionInput(BaseModel):
-    session_id: str
 
 
 class ProfileUpdate(BaseModel):
@@ -223,37 +217,6 @@ async def login(inp: LoginInput):
     return {"session_token": token, "user": public_user(user)}
 
 
-@api.post("/auth/session")
-async def google_session(inp: SessionInput):
-    async with httpx.AsyncClient(timeout=20) as hc:
-        r = await hc.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": inp.session_id})
-    if r.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
-    data = r.json()
-    email = (data.get("email") or "").lower()
-    user = await db.users.find_one({"email": email})
-    if not user:
-        user_id = gen_id("user_")
-        user = {
-            "user_id": user_id,
-            "name": data.get("name"),
-            "email": email,
-            "picture": data.get("picture"),
-            "stream": "science",
-            "language": "ar",
-            "daily_goal": 20,
-            "xp": 0,
-            "auth_provider": "google",
-            "created_at": iso(now_utc()),
-        }
-        await db.users.insert_one(user)
-        await db.streaks.insert_one({
-            "user_id": user_id, "current_streak": 0, "longest_streak": 0, "last_active_date": None,
-        })
-    token = await create_session(user["user_id"])
-    return {"session_token": token, "user": public_user(user)}
-
-
 @api.get("/auth/me")
 async def me(user: CurrentUser):
     streak = await db.streaks.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
@@ -330,36 +293,30 @@ def _extract_json(text: str) -> dict:
 
 
 async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> dict:
-    import tempfile
-    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
+    from google import genai
+    from google.genai import types
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=gen_id("gen_"),
-        system_message=GEN_SYSTEM,
-    ).with_model("gemini", "gemini-3-flash-preview")
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured on the server")
 
     prompt = GEN_PROMPT
+    if mime == "application/pdf":
+        prompt += "\nThis is a multi-page PDF lesson — cover concepts from ALL pages."
     if hint:
         prompt += f"\nThe student says this is about: {hint}"
 
-    tmp_path = None
-    try:
-        if mime == "application/pdf":
-            # Gemini reads PDFs (all pages) via a file path.
-            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-            with os.fdopen(fd, "wb") as f:
-                f.write(base64.b64decode(file_b64))
-            content = FileContentWithMimeType(file_path=tmp_path, mime_type="application/pdf")
-            prompt += "\nThis is a multi-page PDF lesson — cover concepts from ALL pages."
-        else:
-            content = ImageContent(image_base64=file_b64)
-        msg = UserMessage(text=prompt, file_contents=[content])
-        resp = await chat.send_message(msg)
-        return _extract_json(resp if isinstance(resp, str) else str(resp))
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    client_gemini = genai.Client(api_key=GEMINI_API_KEY)
+    resp = await client_gemini.aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            types.Content(role="user", parts=[
+                types.Part.from_bytes(data=base64.b64decode(file_b64), mime_type=mime),
+                types.Part.from_text(text=prompt),
+            ]),
+        ],
+        config=types.GenerateContentConfig(system_instruction=GEN_SYSTEM),
+    )
+    return _extract_json(resp.text)
 
 
 @api.post("/decks/generate")
@@ -1093,7 +1050,7 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,  # auth is via Bearer token, not cookies — safe to pair with "*"
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],

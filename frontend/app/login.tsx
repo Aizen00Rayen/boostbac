@@ -11,13 +11,12 @@ import { RText, PrimaryButton, Field } from "@/src/components/ui";
 
 export default function Login() {
   const { t } = useI18n();
-  const { login, loginWithGoogle } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [gLoading, setGLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const onSubmit = async () => {
@@ -34,18 +33,6 @@ export default function Login() {
       setErr(e?.message || "Error");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const onGoogle = async () => {
-    setErr("");
-    setGLoading(true);
-    try {
-      await loginWithGoogle();
-    } catch (e: any) {
-      setErr(e?.message || "Error");
-    } finally {
-      setGLoading(false);
     }
   };
 
@@ -89,21 +76,6 @@ export default function Login() {
             </RText>
           ) : null}
           <PrimaryButton testID="login-submit" label={t("login")} onPress={onSubmit} loading={loading} />
-
-          <View style={styles.divider}>
-            <View style={styles.line} />
-            <RText style={{ color: colors.muted }}>{t("or")}</RText>
-            <View style={styles.line} />
-          </View>
-
-          <PrimaryButton
-            testID="login-google"
-            variant="secondary"
-            label={t("continueGoogle")}
-            onPress={onGoogle}
-            loading={gLoading}
-            icon={<Ionicons name="logo-google" size={20} color={colors.brand} />}
-          />
         </View>
 
         <Pressable testID="go-signup" onPress={() => router.replace("/signup")} style={{ marginTop: spacing.xl }}>

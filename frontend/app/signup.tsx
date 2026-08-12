@@ -13,7 +13,7 @@ const STREAMS = ["math", "science", "tech", "management", "letters", "languages"
 
 export default function Signup() {
   const { t } = useI18n();
-  const { register, loginWithGoogle } = useAuth();
+  const { register } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
@@ -22,7 +22,6 @@ export default function Signup() {
   const [stream, setStream] = useState<string>("science");
   const [role, setRole] = useState<string>("student");
   const [loading, setLoading] = useState(false);
-  const [gLoading, setGLoading] = useState(false);
   const [err, setErr] = useState("");
 
   const onSubmit = async () => {
@@ -39,18 +38,6 @@ export default function Signup() {
       setErr(e?.message || "Error");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const onGoogle = async () => {
-    setErr("");
-    setGLoading(true);
-    try {
-      await loginWithGoogle();
-    } catch (e: any) {
-      setErr(e?.message || "Error");
-    } finally {
-      setGLoading(false);
     }
   };
 
@@ -118,21 +105,6 @@ export default function Signup() {
             </RText>
           ) : null}
           <PrimaryButton testID="signup-submit" label={t("signup")} onPress={onSubmit} loading={loading} />
-
-          <View style={styles.divider}>
-            <View style={styles.line} />
-            <RText style={{ color: colors.muted }}>{t("or")}</RText>
-            <View style={styles.line} />
-          </View>
-
-          <PrimaryButton
-            testID="signup-google"
-            variant="secondary"
-            label={t("continueGoogle")}
-            onPress={onGoogle}
-            loading={gLoading}
-            icon={<Ionicons name="logo-google" size={20} color={colors.brand} />}
-          />
         </View>
 
         <Pressable testID="go-login" onPress={() => router.replace("/login")} style={{ marginTop: spacing.xl }}>
