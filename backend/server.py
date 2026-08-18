@@ -1351,7 +1351,12 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     global pool
-    pool = await asyncpg.create_pool(DATABASE_URL, init=_init_conn, statement_cache_size=0)
+    # Supabase's session pooler caps total concurrent clients project-wide (15 on
+    # the free tier) — asyncpg's default pool (min_size=10, max_size=10) alone
+    # can exhaust that, especially with more than one deployment/instance
+    # connecting at once. Keep this small; a hobby-scale app doesn't need 10
+    # idle connections reserved per instance.
+    pool = await asyncpg.create_pool(DATABASE_URL, init=_init_conn, statement_cache_size=0, min_size=1, max_size=4)
     # idempotent admin seed
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", "")
