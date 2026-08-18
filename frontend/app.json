@@ -24,9 +24,10 @@
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.bacailearn.dttpl0",
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -61,6 +62,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "99a90a18-bbfd-49b9-bf7f-566fbccf87d3"
+      }
+    },
+    "owner": "rayenaizen"
   }
 }

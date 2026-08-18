@@ -5,10 +5,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, softShadow } from "@/src/theme";
 import { RText } from "@/src/components/ui";
 import { useI18n } from "@/src/i18n";
+import { formatExerciseText } from "@/src/utils/formatText";
 import { GameCard, shuffle } from "./types";
 
 export function QuizRound({ card, onAnswer }: { card: GameCard; onAnswer: (correct: boolean) => void }) {
-  const { t } = useI18n();
+  const { t, isRTL } = useI18n();
+  const questionText = formatExerciseText(card.question);
   const correctIndex = card.game_data?.quiz_correct_index ?? 0;
   const rawOptions = card.game_data?.quiz_options ?? [];
   const options = useMemo(
@@ -28,7 +30,12 @@ export function QuizRound({ card, onAnswer }: { card: GameCard; onAnswer: (corre
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
       <RText weight="bold" style={styles.instruction}>{t("quizInstruction")}</RText>
-      <RText weight="bold" style={styles.question}>{card.question}</RText>
+      <RText
+        weight="medium"
+        style={[styles.question, { textAlign: isRTL ? "right" : "left", writingDirection: isRTL ? "rtl" : "ltr" }]}
+      >
+        {questionText}
+      </RText>
       <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
         {options.map((opt, i) => {
           const isSelected = selected === i;

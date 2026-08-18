@@ -9,6 +9,7 @@ import { useI18n, randomCheer, DERJA_SESSION_DONE } from "@/src/i18n";
 import { colors, spacing, font, radius } from "@/src/theme";
 import { RText, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
+import { formatExerciseText } from "@/src/utils/formatText";
 import { QuizRound } from "@/src/components/games/QuizRound";
 import { FillBlankRound } from "@/src/components/games/FillBlankRound";
 import { MatchingRound } from "@/src/components/games/MatchingRound";
@@ -43,14 +44,15 @@ function buildRound(cards: GameCard[]): RoundItem[] {
 }
 
 function FlipItem({ card, onAnswer }: { card: GameCard; onAnswer: (correct: boolean) => void }) {
-  const { t } = useI18n();
+  const { t, isRTL } = useI18n();
   const [revealed, setRevealed] = useState(false);
+  const dirStyle = { textAlign: isRTL ? "right" : "left", writingDirection: isRTL ? "rtl" : "ltr" } as const;
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.itemContainer} showsVerticalScrollIndicator={false}>
-      <RText weight="bold" style={styles.question}>{card.question}</RText>
+      <RText weight="medium" style={[styles.question, dirStyle]}>{formatExerciseText(card.question)}</RText>
       {revealed && (
         <View style={styles.answerBox}>
-          <RText weight="medium" style={styles.answerText}>{card.answer}</RText>
+          <RText weight="medium" style={[styles.answerText, dirStyle]}>{formatExerciseText(card.answer)}</RText>
         </View>
       )}
       {!revealed ? (

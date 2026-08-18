@@ -22,6 +22,7 @@ import { cacheQueue, getCachedQueue, isOnline, addPending, flushPending } from "
 import { colors, spacing, font, radius, glow } from "@/src/theme";
 import { RText, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
+import { formatExerciseText } from "@/src/utils/formatText";
 
 type CardT = {
   card_id: string;
@@ -43,7 +44,7 @@ const RATINGS: { key: Rating; color: string }[] = [
 ];
 
 export default function Review() {
-  const { t } = useI18n();
+  const { t, isRTL } = useI18n();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { deck_id } = useLocalSearchParams<{ deck_id?: string }>();
@@ -202,6 +203,10 @@ export default function Review() {
   const attachmentUri = attachment
     ? `data:${attachment.attachment_mime};base64,${attachment.attachment_base64}`
     : null;
+  const questionText = formatExerciseText(card.question);
+  const answerText = formatExerciseText(card.answer);
+  const isLongQuestion = questionText.length > 90;
+  const isLongAnswer = answerText.length > 90;
 
   return (
     <View style={styles.container}>
@@ -241,12 +246,26 @@ export default function Review() {
                 ) : (
                   <Image source={{ uri: attachmentUri }} style={styles.attachmentImage} contentFit="contain" />
                 )}
-                <RText weight="bold" style={[styles.qText, styles.qTextWithAttachment]}>{card.question}</RText>
+                <RText
+                  weight="medium"
+                  style={[styles.qText, styles.qTextWithAttachment, { textAlign: isRTL ? "right" : "left", writingDirection: isRTL ? "rtl" : "ltr" }]}
+                >
+                  {questionText}
+                </RText>
               </ScrollView>
             ) : (
-              <View style={styles.cardCenter}>
-                <RText weight="bold" style={styles.qText}>{card.question}</RText>
-              </View>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cardCenter} showsVerticalScrollIndicator={false}>
+                <RText
+                  weight={isLongQuestion ? "medium" : "bold"}
+                  style={[
+                    styles.qText,
+                    isLongQuestion && styles.qTextLong,
+                    { textAlign: isLongQuestion ? (isRTL ? "right" : "left") : "center", writingDirection: isRTL ? "rtl" : "ltr" },
+                  ]}
+                >
+                  {questionText}
+                </RText>
+              </ScrollView>
             )}
             <View style={styles.revealHint}>
               <Ionicons name="sync" size={16} color={colors.muted} />
@@ -259,7 +278,16 @@ export default function Review() {
               <RText weight="bold" style={{ color: colors.onBrandPrimary, fontSize: font.sm }}>{t("answer")}</RText>
             </View>
             <ScrollView contentContainerStyle={styles.cardCenter} showsVerticalScrollIndicator={false}>
-              <RText weight="medium" style={styles.aText}>{card.answer}</RText>
+              <RText
+                weight="medium"
+                style={[
+                  styles.aText,
+                  isLongAnswer && styles.aTextLong,
+                  { textAlign: isLongAnswer ? (isRTL ? "right" : "left") : "center", writingDirection: isRTL ? "rtl" : "ltr" },
+                ]}
+              >
+                {answerText}
+              </RText>
             </ScrollView>
           </Animated.View>
         </Pressable>
@@ -394,8 +422,10 @@ const styles = StyleSheet.create({
   subjectTag: { alignSelf: "flex-start", backgroundColor: colors.surfaceTertiary, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   cardCenter: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg },
   qText: { color: colors.onSurface, fontSize: font["2xl"], textAlign: "center", lineHeight: 34 },
-  qTextWithAttachment: { fontSize: font.lg, lineHeight: 26, marginTop: spacing.md },
+  qTextLong: { fontSize: font.lg, lineHeight: 26, alignSelf: "stretch" },
+  qTextWithAttachment: { fontSize: font.base, lineHeight: 22, marginTop: spacing.md, alignSelf: "stretch" },
   aText: { color: colors.onSurfaceSecondary, fontSize: font.xl, textAlign: "center", lineHeight: 30 },
+  aTextLong: { fontSize: font.lg, lineHeight: 25, alignSelf: "stretch" },
   revealHint: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   attachmentScroll: { alignItems: "center", paddingVertical: spacing.md },
   attachmentImage: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
