@@ -8,7 +8,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
-import { api } from "@/src/api";
+import { api, localizeError } from "@/src/api";
 import { useI18n } from "@/src/i18n";
 import { colors, spacing, font, radius } from "@/src/theme";
 import { RText, PrimaryButton, Field } from "@/src/components/ui";
@@ -37,12 +37,12 @@ export default function CreatePost() {
       if (res.canceled || !res.assets?.[0]) return;
       const b64 = await FileSystem.readAsStringAsync(res.assets[0].uri, { encoding: FileSystem.EncodingType.Base64 });
       setAttach({ b64, mime: "application/pdf" });
-    } catch (e: any) { setErr(e?.message || "Error"); }
+    } catch (e: any) { setErr(localizeError(e, t)); }
   };
 
   const publish = async () => {
     setErr("");
-    if (!title.trim() || !subject.trim()) { setErr(t("titleField") + " / " + t("subjectField")); return; }
+    if (!title.trim() || !subject.trim()) { setErr(t("fillRequired")); return; }
     setSaving(true);
     try {
       await api("/resources", {
@@ -52,7 +52,7 @@ export default function CreatePost() {
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
-    } catch (e: any) { setErr(e?.message || "Error"); } finally { setSaving(false); }
+    } catch (e: any) { setErr(localizeError(e, t)); } finally { setSaving(false); }
   };
 
   return (

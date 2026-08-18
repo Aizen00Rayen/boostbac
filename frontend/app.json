@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "boostbac",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0A1420"
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.bacailearn.dttpl0",
@@ -52,9 +52,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/boostbac.png",
-          "imageWidth": 260,
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#0A1420"
+          "backgroundColor": "#FFFFFF"
         }
       ],
       "@react-native-community/datetimepicker"

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Text,
   TextProps,
@@ -11,7 +11,7 @@ import {
   TextInputProps,
   StyleProp,
 } from "react-native";
-import { colors, spacing, radius, font, glow } from "@/src/theme";
+import { colors, spacing, radius, font, chunky, softShadow } from "@/src/theme";
 import { useI18n } from "@/src/i18n";
 
 // RTL-aware text
@@ -30,6 +30,13 @@ export function RText(props: TextProps & { weight?: "regular" | "medium" | "bold
   );
 }
 
+const VARIANT_FILL: Record<"primary" | "secondary" | "success" | "ghost", string> = {
+  primary: colors.brand,
+  secondary: colors.surfaceSecondary,
+  success: colors.success,
+  ghost: "transparent",
+};
+
 export function PrimaryButton({
   label,
   onPress,
@@ -44,42 +51,41 @@ export function PrimaryButton({
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "success" | "ghost";
   icon?: React.ReactNode;
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const isPrimary = variant === "primary";
+  const [pressed, setPressed] = useState(false);
   const isGhost = variant === "ghost";
+  const isSecondary = variant === "secondary";
+  const fill = VARIANT_FILL[variant];
+  const labelColor = variant === "primary" || variant === "success"
+    ? colors.onBrandPrimary
+    : isGhost ? colors.onSurfaceSecondary : colors.brand;
+
   return (
     <Pressable
       testID={testID}
       onPress={onPress}
       disabled={disabled || loading}
-      style={({ pressed }) => [
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
         styles.btn,
-        isPrimary && styles.btnPrimary,
-        isPrimary && glow(colors.brand, 14),
-        !isPrimary && !isGhost && styles.btnSecondary,
-        isGhost && styles.btnGhost,
+        { backgroundColor: fill },
+        isSecondary && { borderWidth: 1, borderColor: colors.border },
+        !isGhost && chunky(fill === "transparent" ? colors.border : fill, pressed),
         (disabled || loading) && { opacity: 0.5 },
-        pressed && { transform: [{ scale: 0.98 }] },
         style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? colors.onBrandPrimary : colors.brand} />
+        <ActivityIndicator color={labelColor} />
       ) : (
         <View style={styles.btnInner}>
           {icon}
-          <Text
-            style={[
-              styles.btnLabel,
-              { color: isPrimary ? colors.onBrandPrimary : isGhost ? colors.onSurfaceSecondary : colors.brand },
-            ]}
-          >
-            {label}
-          </Text>
+          <Text style={[styles.btnLabel, { color: labelColor }]}>{label}</Text>
         </View>
       )}
     </Pressable>
@@ -101,8 +107,12 @@ export function Field({ style, ...props }: TextInputProps) {
   );
 }
 
-export function Card({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+export function Card({ children, style, testID }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; testID?: string }) {
+  return (
+    <View testID={testID} style={[styles.card, style]}>
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -113,9 +123,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.xl,
   },
-  btnPrimary: { backgroundColor: colors.brand },
-  btnSecondary: { backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.border },
-  btnGhost: { backgroundColor: "transparent" },
   btnInner: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   btnLabel: { fontSize: font.lg, fontWeight: "800" },
   field: {
@@ -125,14 +132,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     color: colors.onSurface,
     fontSize: font.lg,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
   },
   card: {
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...softShadow(),
   },
 });

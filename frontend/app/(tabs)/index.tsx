@@ -28,6 +28,10 @@ type Home = {
   suggested_pace?: number | null;
   decks: Deck[];
 };
+type PathChapter = { chapter_id: string; name: string; total_cards: number; due_cards: number; mastered_cards: number };
+type PathSummary = { subject: string; chapters: PathChapter[] };
+
+const TRACKED_SUBJECTS = ["mathematiques", "physique", "svt"];
 
 export default function HomeScreen() {
   const { t, isRTL } = useI18n();
@@ -36,6 +40,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { refresh: refreshBadges } = useBadges();
   const [data, setData] = useState<Home | null>(null);
+  const [paths, setPaths] = useState<PathSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -47,6 +52,10 @@ export default function HomeScreen() {
       const d = await api<Home>("/home");
       setData(d);
       refreshBadges();
+      const results = await Promise.allSettled(
+        TRACKED_SUBJECTS.map((s) => api<PathSummary>(`/path/${s}`)),
+      );
+      setPaths(results.filter((r): r is PromiseFulfilledResult<PathSummary> => r.status === "fulfilled").map((r) => r.value));
     } catch {
       setError(true);
     } finally {
@@ -87,7 +96,10 @@ export default function HomeScreen() {
       {/* Sticky header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.headerRow}>
-          <Image source={require("../../assets/images/boostbac.png")} style={styles.headerLogo} contentFit="contain" />
+          <View style={styles.headerBrand}>
+            <Image source={require("../../assets/images/boostbac.png")} style={styles.headerLogo} contentFit="contain" />
+            <RText weight="heavy" style={styles.headerWordmark}>BoostBac</RText>
+          </View>
           <View style={styles.statsRow}>
             <Pressable testID="open-leaderboard" onPress={() => router.push("/leaderboard")} style={styles.statPill}>
               <Ionicons name="trophy" size={15} color={colors.brand} />
@@ -115,7 +127,7 @@ export default function HomeScreen() {
       >
         {/* Today review hero */}
         <Card style={styles.heroCard}>
-          <LinearGradient colors={["#0F3B45", colors.surfaceSecondary]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+          <LinearGradient colors={[colors.brandTertiary, colors.surfaceSecondary]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <View style={{ flex: 1 }}>
               <RText weight="bold" style={styles.heroLabel}>
@@ -181,6 +193,48 @@ export default function HomeScreen() {
             <Ionicons name="calendar-outline" size={20} color={colors.brand} />
             <RText weight="bold" style={{ color: colors.brand }}>{t("setExamDate")}</RText>
           </Pressable>
+        )}
+
+        {/* Learning paths (tracked subjects only) */}
+        {paths.length > 0 && (
+          <>
+            <View style={styles.sectionHead}>
+              <RText weight="heavy" style={styles.sectionTitle}>{t("yourPaths")}</RText>
+            </View>
+            <View style={{ gap: spacing.md, marginBottom: spacing.lg }}>
+              {paths.map((p) => {
+                const started = p.chapters.filter((c) => c.total_cards > 0).length;
+                const totalDue = p.chapters.reduce((s, c) => s + c.due_cards, 0);
+                return (
+                  <Pressable
+                    key={p.subject}
+                    testID={`path-card-${p.subject}`}
+                    onPress={() => router.push({ pathname: "/path/[subject]", params: { subject: p.subject } })}
+                    style={({ pressed }) => [styles.pathRow, pressed && { transform: [{ scale: 0.99 }] }]}
+                  >
+                    <View style={styles.pathIcon}>
+                      <Ionicons name="map" size={22} color={colors.onBrandPrimary} />
+                    </View>
+                    <View style={{ flex: 1, marginHorizontal: spacing.md }}>
+                      <RText weight="bold" style={{ color: colors.onSurface, fontSize: font.lg }}>
+                        {t(`subject_${p.subject}`)}
+                      </RText>
+                      <RText style={{ color: colors.muted, fontSize: font.sm, marginTop: 2 }}>
+                        {started}/{p.chapters.length}
+                      </RText>
+                    </View>
+                    {totalDue > 0 ? (
+                      <View style={styles.dueBadge}>
+                        <RText weight="heavy" style={{ color: colors.onBrandPrimary, fontSize: font.sm }}>{totalDue}</RText>
+                      </View>
+                    ) : (
+                      <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={20} color={colors.muted} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
         )}
 
         {/* Decks path */}
@@ -256,7 +310,9 @@ const styles = StyleSheet.create({
   centered: { flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   header: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.divider },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerLogo: { width: 120, height: 40 },
+  headerBrand: { flexDirection: "row", alignItems: "center", gap: 6 },
+  headerLogo: { width: 30, height: 34 },
+  headerWordmark: { color: colors.onSurface, fontSize: font.lg },
   statsRow: { flexDirection: "row", gap: spacing.sm },
   statPill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   statPillText: { color: colors.onSurface, fontSize: font.base },
@@ -272,6 +328,8 @@ const styles = StyleSheet.create({
   sectionTitle: { color: colors.onSurface, fontSize: font.xl },
   emptyCard: { alignItems: "center", paddingVertical: spacing["2xl"] },
   deckRow: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
+  pathRow: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
+  pathIcon: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   deckNode: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   dueBadge: { minWidth: 30, height: 30, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   fabWrap: { position: "absolute", left: 0, right: 0, alignItems: "center" },

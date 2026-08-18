@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import { WebView } from "react-native-webview";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,8 +23,17 @@ import { colors, spacing, font, radius, glow } from "@/src/theme";
 import { RText, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
 
-type CardT = { card_id: string; question: string; answer: string; subject: string; topic: string; difficulty: string };
+type CardT = {
+  card_id: string;
+  deck_id?: string;
+  question: string;
+  answer: string;
+  subject: string;
+  topic: string;
+  difficulty: string;
+};
 type Rating = "again" | "hard" | "good" | "easy";
+type Attachment = { attachment_base64: string; attachment_mime: string };
 
 const RATINGS: { key: Rating; color: string }[] = [
   { key: "again", color: colors.info },
@@ -48,10 +59,25 @@ export default function Review() {
   const [summary, setSummary] = useState<{ bonus_xp: number; total_xp: number; current_streak: number } | null>(null);
   const [offline, setOffline] = useState(false);
   const [cheer, setCheer] = useState("");
+  const [attachments, setAttachments] = useState<Record<string, Attachment | null>>({});
 
   const spin = useSharedValue(0);
   const cheerOpacity = useSharedValue(0);
   const total = queue.length;
+
+  useEffect(() => {
+    const card = queue[index];
+    const deckId = card?.deck_id;
+    if (!deckId || deckId in attachments) return;
+    (async () => {
+      try {
+        const a = await api<Attachment>(`/decks/${deckId}/attachment`);
+        setAttachments((prev) => ({ ...prev, [deckId]: a }));
+      } catch {
+        setAttachments((prev) => ({ ...prev, [deckId]: null }));
+      }
+    })();
+  }, [index, queue, attachments]);
 
   useEffect(() => {
     (async () => {
@@ -172,6 +198,10 @@ export default function Review() {
 
   const card = queue[index];
   const progress = total > 0 ? (index) / total : 0;
+  const attachment = card.deck_id ? attachments[card.deck_id] : null;
+  const attachmentUri = attachment
+    ? `data:${attachment.attachment_mime};base64,${attachment.attachment_base64}`
+    : null;
 
   return (
     <View style={styles.container}>
@@ -204,9 +234,20 @@ export default function Review() {
             <View style={styles.subjectTag}>
               <RText weight="bold" style={{ color: colors.brand, fontSize: font.sm }}>{card.subject} · {card.topic}</RText>
             </View>
-            <View style={styles.cardCenter}>
-              <RText weight="bold" style={styles.qText}>{card.question}</RText>
-            </View>
+            {attachmentUri ? (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.attachmentScroll} showsVerticalScrollIndicator={false}>
+                {attachment!.attachment_mime === "application/pdf" ? (
+                  <WebView source={{ uri: attachmentUri }} style={styles.attachmentPdf} scalesPageToFit />
+                ) : (
+                  <Image source={{ uri: attachmentUri }} style={styles.attachmentImage} contentFit="contain" />
+                )}
+                <RText weight="bold" style={[styles.qText, styles.qTextWithAttachment]}>{card.question}</RText>
+              </ScrollView>
+            ) : (
+              <View style={styles.cardCenter}>
+                <RText weight="bold" style={styles.qText}>{card.question}</RText>
+              </View>
+            )}
             <View style={styles.revealHint}>
               <Ionicons name="sync" size={16} color={colors.muted} />
               <RText style={{ color: colors.muted, fontSize: font.sm }}>{t("tapToReveal")}</RText>
@@ -353,8 +394,12 @@ const styles = StyleSheet.create({
   subjectTag: { alignSelf: "flex-start", backgroundColor: colors.surfaceTertiary, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   cardCenter: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg },
   qText: { color: colors.onSurface, fontSize: font["2xl"], textAlign: "center", lineHeight: 34 },
+  qTextWithAttachment: { fontSize: font.lg, lineHeight: 26, marginTop: spacing.md },
   aText: { color: colors.onSurfaceSecondary, fontSize: font.xl, textAlign: "center", lineHeight: 30 },
   revealHint: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  attachmentScroll: { alignItems: "center", paddingVertical: spacing.md },
+  attachmentImage: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
+  attachmentPdf: { width: "100%", height: 260, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
   footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   rateLabel: { color: colors.onSurfaceSecondary, textAlign: "center", marginBottom: spacing.md },
   ratingRow: { flexDirection: "row", gap: spacing.sm },

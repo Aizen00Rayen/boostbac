@@ -33,6 +33,18 @@ export class ApiError extends Error {
   }
 }
 
+// Backend error messages are always in English (developer-facing detail strings).
+// Never show them to the user directly — map the status code to a localized
+// string instead. Callers can special-case a status for a more specific
+// message (e.g. 401 on login = wrong password, 401 elsewhere = session expired).
+export function localizeError(e: unknown, t: (key: string) => string): string {
+  if (e instanceof ApiError) {
+    if (e.status === 0) return t("offline");
+    if (e.status === 408) return t("errorTimeout");
+  }
+  return t("errorGeneric");
+}
+
 export async function api<T = any>(path: string, opts: Options = {}): Promise<T> {
   const { method = "GET", body, auth = true, timeout = 60000 } = opts;
   const headers: Record<string, string> = { "Content-Type": "application/json" };

@@ -14,7 +14,7 @@ import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
 type Row = { user_id: string; name: string; picture?: string; weekly_xp: number; rank: number; is_me: boolean };
 type LB = { leaderboard: Row[]; me: Row; total_players: number };
 
-const MEDAL = ["#FBBF24", "#C9EEFA", "#B08D57"];
+const MEDAL = ["#F5C518", "#B8C4CC", "#C88A4A"]; // gold, silver, bronze
 
 export default function Leaderboard() {
   const { t } = useI18n();
@@ -61,7 +61,7 @@ export default function Leaderboard() {
       >
         {/* My rank hero */}
         <Card style={styles.meCard}>
-          <LinearGradient colors={["#0F3B45", colors.surfaceSecondary]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+          <LinearGradient colors={[colors.brandTertiary, colors.surfaceSecondary]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <View>
               <RText weight="bold" style={{ color: colors.onSurfaceSecondary }}>{t("yourRank")}</RText>

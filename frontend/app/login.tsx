@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { useI18n } from "@/src/i18n";
+import { ApiError, localizeError } from "@/src/api";
 import { colors, spacing, font, radius } from "@/src/theme";
 import { RText, PrimaryButton, Field } from "@/src/components/ui";
 
@@ -22,7 +23,7 @@ export default function Login() {
   const onSubmit = async () => {
     setErr("");
     if (!email.trim() || !password) {
-      setErr(t("email") + " / " + t("password"));
+      setErr(t("fillRequired"));
       return;
     }
     setLoading(true);
@@ -30,7 +31,7 @@ export default function Login() {
       await login(email.trim(), password);
       router.replace("/");
     } catch (e: any) {
-      setErr(e?.message || "Error");
+      setErr(e instanceof ApiError && e.status === 401 ? t("errorInvalidCredentials") : localizeError(e, t));
     } finally {
       setLoading(false);
     }

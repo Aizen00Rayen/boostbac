@@ -4,7 +4,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { api } from "@/src/api";
+import { api, localizeError } from "@/src/api";
 import { useI18n } from "@/src/i18n";
 import { colors, spacing, font, radius } from "@/src/theme";
 import { RText, PrimaryButton, Card } from "@/src/components/ui";
@@ -39,7 +39,7 @@ export default function Exam() {
         setExamId(res.exam_id);
         setQuestions(res.questions);
       } catch (e: any) {
-        setError(e?.message || "Error");
+        setError(localizeError(e, t));
       } finally {
         setLoading(false);
       }
@@ -60,7 +60,7 @@ export default function Exam() {
       setFinal(res);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(localizeError(e, t));
     }
     setFinished(true);
   }, [examId, seconds]);

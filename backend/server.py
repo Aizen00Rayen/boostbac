@@ -33,6 +33,7 @@ pool: asyncpg.Pool = None  # set on startup
 
 async def _init_conn(conn: asyncpg.Connection):
     await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+    await conn.execute("SET search_path TO boostbac, public")
 
 
 # --------------------------------------------------------------------------
@@ -99,7 +100,7 @@ async def create_session(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO user_sessions (session_token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO boostbac.user_sessions (session_token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
             token, user_id, now_utc(), now_utc() + timedelta(days=7),
         )
     return token
@@ -110,12 +111,12 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     token = authorization.split(" ", 1)[1].strip()
     async with pool.acquire() as conn:
-        sess = await conn.fetchrow("SELECT * FROM user_sessions WHERE session_token = $1", token)
+        sess = await conn.fetchrow("SELECT * FROM boostbac.user_sessions WHERE session_token = $1", token)
         if not sess:
             raise HTTPException(status_code=401, detail="Invalid session")
         if sess["expires_at"] < now_utc():
             raise HTTPException(status_code=401, detail="Session expired")
-        user = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", sess["user_id"])
+        user = await conn.fetchrow("SELECT * FROM boostbac.users WHERE user_id = $1", sess["user_id"])
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return dict(user)
@@ -182,7 +183,7 @@ async def register(inp: RegisterInput):
         raise HTTPException(status_code=403, detail="Invalid role")
     email = inp.email.lower()
     async with pool.acquire() as conn:
-        existing = await conn.fetchrow("SELECT 1 FROM users WHERE email = $1", email)
+        existing = await conn.fetchrow("SELECT 1 FROM boostbac.users WHERE email = $1", email)
         if existing:
             raise HTTPException(status_code=409, detail="Email already registered")
         pw_hash = bcrypt.hashpw(inp.password.encode(), bcrypt.gensalt()).decode()
@@ -190,14 +191,14 @@ async def register(inp: RegisterInput):
         status = "pending" if role == "teacher" else "active"
         created_at = now_utc()
         await conn.execute(
-            """INSERT INTO users (user_id, name, email, password_hash, stream, language,
+            """INSERT INTO boostbac.users (user_id, name, email, password_hash, stream, language,
                                    daily_goal, xp, role, status, auth_provider, created_at)
                VALUES ($1, $2, $3, $4, $5, 'ar', 20, 0, $6, $7, 'email', $8)""",
             user_id, inp.name, email, pw_hash, inp.stream or "science", role, status, created_at,
         )
         if role == "student":
             await conn.execute(
-                "INSERT INTO streaks (user_id, current_streak, longest_streak, last_active_date) VALUES ($1, 0, 0, NULL)",
+                "INSERT INTO boostbac.streaks (user_id, current_streak, longest_streak, last_active_date) VALUES ($1, 0, 0, NULL)",
                 user_id,
             )
     doc = {
@@ -212,7 +213,7 @@ async def register(inp: RegisterInput):
 @api.post("/auth/login")
 async def login(inp: LoginInput):
     async with pool.acquire() as conn:
-        user = await conn.fetchrow("SELECT * FROM users WHERE email = $1", inp.email.lower())
+        user = await conn.fetchrow("SELECT * FROM boostbac.users WHERE email = $1", inp.email.lower())
     if not user or not user["password_hash"]:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not bcrypt.checkpw(inp.password.encode(), user["password_hash"].encode()):
@@ -224,7 +225,7 @@ async def login(inp: LoginInput):
 @api.get("/auth/me")
 async def me(user: CurrentUser):
     async with pool.acquire() as conn:
-        streak = await conn.fetchrow("SELECT * FROM streaks WHERE user_id = $1", user["user_id"])
+        streak = await conn.fetchrow("SELECT * FROM boostbac.streaks WHERE user_id = $1", user["user_id"])
     result = public_user(user)
     result["current_streak"] = streak["current_streak"] if streak else 0
     result["longest_streak"] = streak["longest_streak"] if streak else 0
@@ -236,7 +237,7 @@ async def logout(authorization: Optional[str] = Header(None)):
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1].strip()
         async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM user_sessions WHERE session_token = $1", token)
+            await conn.execute("DELETE FROM boostbac.user_sessions WHERE session_token = $1", token)
     return {"ok": True}
 
 
@@ -247,11 +248,11 @@ async def update_profile(inp: ProfileUpdate, user: CurrentUser):
         set_clause = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(updates.keys()))
         async with pool.acquire() as conn:
             await conn.execute(
-                f"UPDATE users SET {set_clause} WHERE user_id = $1",
+                f"UPDATE boostbac.users SET {set_clause} WHERE user_id = $1",
                 user["user_id"], *updates.values(),
             )
     async with pool.acquire() as conn:
-        fresh = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user["user_id"])
+        fresh = await conn.fetchrow("SELECT * FROM boostbac.users WHERE user_id = $1", user["user_id"])
     return public_user(dict(fresh))
 
 
@@ -266,28 +267,75 @@ class GenerateInput(BaseModel):
 
 GEN_SYSTEM = (
     "You are BoostBac, an expert tutor for Algerian Baccalaureat students. "
-    "You receive a photo of a student's course notes, textbook page, or exercises. "
-    "Read ALL the text (OCR), understand the concepts, and produce active-recall flashcards. "
+    "You receive a photo or PDF of a student's EXERCISE SHEET: one exercise, or a numbered series of exercises "
+    "(e.g. 'Exercice 1', 'تمرين 2', 'Problem 3'), possibly spanning multiple pages. "
+    "Read ALL the text (OCR), including any diagrams, tables, or figures described in words. "
     "CRITICAL: Detect the language of the source content and write every question and answer in THAT SAME language "
-    "(Arabic, French, or English). Keep answers concise and factual. "
+    "(Arabic, French, or English). "
     "Return ONLY valid JSON, no markdown, no commentary."
 )
 
 GEN_PROMPT = (
-    "Analyze this document image and generate high-quality active-recall flashcards.\n"
+    "Analyze this exercise sheet and produce ONE flashcard PER EXERCISE (not per sub-question or per fact).\n"
+    "For each exercise:\n"
+    "- 'question' = the FULL exercise statement, transcribed as faithfully as possible to the original wording, "
+    "numbering, and notation (keep all sub-parts like a), b), c) together in the same question text).\n"
+    "- 'answer' = the complete worked solution. If a correction/solution is already visible in the source, "
+    "transcribe it. If NO solution is shown (a blank exercise sheet), SOLVE the exercise yourself and give the "
+    "full correct answer with the key steps of reasoning.\n"
+    "ALSO produce short practice-game variants of the SAME exercise for each card:\n"
+    "- 'quiz_options': an array of exactly 4 short answer choices (one correct, three plausible wrong answers "
+    "in the same language and units/format as the correct one), 'quiz_correct_index': the 0-based index of the "
+    "correct option in that array.\n"
+    "- 'match_prompt': a very short (few words) version of the question suitable for a matching-pairs game tile, "
+    "'match_answer': a very short (few words) version of the final answer to match it with.\n"
+    "- 'blank_sentence': one short sentence summarizing the key fact/result of this exercise with the key term or "
+    "final numeric result replaced by '___', 'blank_answer': the exact word/phrase that fills the blank.\n"
+    "If a short/game-friendly variant genuinely doesn't make sense for a given exercise (e.g. a multi-part proof "
+    "with no single short answer), omit that field for that card rather than forcing a bad one.\n"
     "Return a JSON object with EXACTLY this shape:\n"
     "{\n"
     '  "subject": "<the school subject, e.g. Physics / Mathematics / Philosophy>",\n'
-    '  "topic": "<the specific chapter or topic>",\n'
+    '  "topic": "<the specific chapter or topic these exercises belong to>",\n'
     '  "deck_name": "<Subject — Topic>",\n'
     '  "language": "<ar|fr|en>",\n'
     '  "cards": [\n'
-    '    {"question": "...", "answer": "...", "topic": "<sub-topic>", "difficulty": "<easy|medium|hard>"}\n'
+    '    {"question": "<full exercise statement>", "answer": "<full worked solution>", '
+    '"topic": "<e.g. Exercise 1>", "difficulty": "<easy|medium|hard>", '
+    '"quiz_options": ["...", "...", "...", "..."], "quiz_correct_index": 0, '
+    '"match_prompt": "...", "match_answer": "...", '
+    '"blank_sentence": "... ___ ...", "blank_answer": "..."}\n'
     "  ]\n"
     "}\n"
-    "Generate between 5 and 12 cards. Each question must test ONE concept. "
-    "Avoid yes/no questions. Make them exam-relevant."
+    "One card per exercise. If the sheet has only one exercise, return exactly one card."
 )
+
+
+_JSON_VALID_ESCAPES = set('"\\/bfnrtu')
+
+
+def _sanitize_json_escapes(text: str) -> str:
+    # Model sometimes emits raw LaTeX-style backslashes (e.g. "\cdot", "U\_n")
+    # inside strings without escaping them for JSON. Scan left-to-right and
+    # double any backslash not part of a valid JSON escape pair, advancing by
+    # 2 chars on valid pairs so runs of backslashes stay correctly aligned.
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "\\" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt in _JSON_VALID_ESCAPES:
+                out.append(c)
+                out.append(nxt)
+                i += 2
+                continue
+            out.append("\\\\")
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _extract_json(text: str) -> dict:
@@ -301,34 +349,55 @@ def _extract_json(text: str) -> dict:
     end = text.rfind("}")
     if start != -1 and end != -1:
         text = text[start:end + 1]
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return json.loads(_sanitize_json_escapes(text))
+
+
+# Tried in order. Each model has its OWN free-tier daily quota, so if the
+# primary is exhausted (429) or pulled (404), we fall back to the next one
+# rather than failing the whole request.
+GEN_MODEL_FALLBACKS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"]
 
 
 async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> dict:
     from google import genai
     from google.genai import types
+    from google.genai.errors import APIError
 
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured on the server")
 
     prompt = GEN_PROMPT
     if mime == "application/pdf":
-        prompt += "\nThis is a multi-page PDF lesson — cover concepts from ALL pages."
+        prompt += "\nThis is a multi-page PDF — treat it as one continuous exercise sheet; exercises may span pages."
     if hint:
         prompt += f"\nThe student says this is about: {hint}"
 
     client_gemini = genai.Client(api_key=GEMINI_API_KEY)
-    resp = await client_gemini.aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            types.Content(role="user", parts=[
-                types.Part.from_bytes(data=base64.b64decode(file_b64), mime_type=mime),
-                types.Part.from_text(text=prompt),
-            ]),
-        ],
-        config=types.GenerateContentConfig(system_instruction=GEN_SYSTEM),
-    )
-    return _extract_json(resp.text)
+    contents = [
+        types.Content(role="user", parts=[
+            types.Part.from_bytes(data=base64.b64decode(file_b64), mime_type=mime),
+            types.Part.from_text(text=prompt),
+        ]),
+    ]
+    config = types.GenerateContentConfig(system_instruction=GEN_SYSTEM, response_mime_type="application/json")
+
+    last_error: Optional[Exception] = None
+    for i, model in enumerate(GEN_MODEL_FALLBACKS):
+        try:
+            resp = await client_gemini.aio.models.generate_content(model=model, contents=contents, config=config)
+            return _extract_json(resp.text)
+        except APIError as e:
+            last_error = e
+            retryable = e.code in (429, 404, 503)
+            has_next = i + 1 < len(GEN_MODEL_FALLBACKS)
+            if retryable and has_next:
+                logger.warning(f"Gemini model {model} failed ({e.code}), falling back to next model")
+                continue
+            raise
+    raise last_error  # pragma: no cover — loop always returns or raises above
 
 
 @api.post("/decks/generate")
@@ -367,9 +436,35 @@ async def generate_deck(inp: GenerateInput, user: CurrentUser):
             "answer": c.get("answer", ""),
             "topic": c.get("topic", topic),
             "difficulty": c.get("difficulty", "medium"),
+            "game_data": _build_game_data(c),
         })
     # Return preview (not yet saved) — client edits then calls /decks/save
     return {"deck": deck, "cards": out_cards}
+
+
+def _build_game_data(c: dict) -> Optional[dict]:
+    """Collect the AI-generated quiz/matching/fill-blank variants for one card.
+    Any of these can legitimately be missing (the model may skip a variant that
+    doesn't fit the exercise) — games defensively check for their own fields."""
+    quiz_options = c.get("quiz_options")
+    quiz_correct_index = c.get("quiz_correct_index")
+    match_prompt = c.get("match_prompt")
+    match_answer = c.get("match_answer")
+    blank_sentence = c.get("blank_sentence")
+    blank_answer = c.get("blank_answer")
+
+    data = {}
+    if isinstance(quiz_options, list) and len(quiz_options) == 4 and isinstance(quiz_correct_index, int) \
+            and 0 <= quiz_correct_index < 4:
+        data["quiz_options"] = quiz_options
+        data["quiz_correct_index"] = quiz_correct_index
+    if match_prompt and match_answer:
+        data["match_prompt"] = match_prompt
+        data["match_answer"] = match_answer
+    if blank_sentence and blank_answer and "___" in blank_sentence:
+        data["blank_sentence"] = blank_sentence
+        data["blank_answer"] = blank_answer
+    return data or None
 
 
 class SaveDeckInput(BaseModel):
@@ -385,27 +480,36 @@ async def save_deck(inp: SaveDeckInput, user: CurrentUser):
     topic = deck.get("topic", "")
     deck_name = deck.get("deck_name", "Deck")
     language = deck.get("language", "ar")
+    attachment_base64 = deck.get("attachment_base64")
+    attachment_mime = deck.get("attachment_mime")
+    chapter_id = deck.get("chapter_id")
     now = now_utc()
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
-                """INSERT INTO decks (deck_id, user_id, subject, topic, deck_name, language, created_at, saved)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+                """INSERT INTO boostbac.decks (deck_id, user_id, subject, topic, deck_name, language, created_at,
+                                        saved, attachment_base64, attachment_mime, chapter_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10)
                    ON CONFLICT (deck_id) DO UPDATE SET
                        user_id = excluded.user_id, subject = excluded.subject, topic = excluded.topic,
-                       deck_name = excluded.deck_name, language = excluded.language, saved = true""",
+                       deck_name = excluded.deck_name, language = excluded.language, saved = true,
+                       attachment_base64 = excluded.attachment_base64, attachment_mime = excluded.attachment_mime,
+                       chapter_id = excluded.chapter_id""",
                 deck_id, user["user_id"], subject, topic, deck_name, language, now,
+                attachment_base64, attachment_mime, chapter_id,
             )
             saved = 0
             for c in inp.cards:
+                game_data = c.get("game_data")
                 await conn.execute(
-                    """INSERT INTO cards (card_id, deck_id, user_id, subject, topic, question, answer,
+                    """INSERT INTO boostbac.cards (card_id, deck_id, user_id, subject, topic, question, answer,
                                            difficulty, ease_factor, interval_days, repetitions,
-                                           next_review_date, last_reviewed_at, created_at)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2.5, 0, 0, $9, NULL, $9)""",
+                                           next_review_date, last_reviewed_at, created_at, game_data)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2.5, 0, 0, $9, NULL, $9, $10)""",
                     gen_id("card_"), deck_id, user["user_id"], subject, c.get("topic") or topic,
                     c.get("question", ""), c.get("answer", ""), c.get("difficulty", "medium"), now,
+                    game_data,
                 )
                 saved += 1
     return {"deck_id": deck_id, "cards_saved": saved}
@@ -415,7 +519,9 @@ async def save_deck(inp: SaveDeckInput, user: CurrentUser):
 async def list_decks(user: CurrentUser):
     async with pool.acquire() as conn:
         decks = await conn.fetch(
-            "SELECT * FROM decks WHERE user_id = $1 AND saved = true ORDER BY created_at DESC",
+            """SELECT deck_id, user_id, subject, topic, deck_name, language, created_at, saved,
+                      (attachment_base64 IS NOT NULL) AS has_attachment
+               FROM boostbac.decks WHERE user_id = $1 AND saved = true ORDER BY created_at DESC""",
             user["user_id"],
         )
         out = []
@@ -424,7 +530,7 @@ async def list_decks(user: CurrentUser):
                 """SELECT count(*) AS total,
                           count(*) FILTER (WHERE next_review_date <= now()) AS due,
                           count(*) FILTER (WHERE repetitions >= 3) AS mastered
-                   FROM cards WHERE deck_id = $1""",
+                   FROM boostbac.cards WHERE deck_id = $1""",
                 d["deck_id"],
             )
             row = dict(d)
@@ -435,12 +541,125 @@ async def list_decks(user: CurrentUser):
     return out
 
 
+@api.get("/decks/{deck_id}/attachment")
+async def get_deck_attachment(deck_id: str, user: CurrentUser):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT attachment_base64, attachment_mime FROM boostbac.decks WHERE deck_id = $1 AND user_id = $2",
+            deck_id, user["user_id"],
+        )
+    if not row or not row["attachment_base64"]:
+        raise HTTPException(status_code=404, detail="No attachment for this deck")
+    return {"attachment_base64": row["attachment_base64"], "attachment_mime": row["attachment_mime"]}
+
+
 @api.delete("/decks/{deck_id}")
 async def delete_deck(deck_id: str, user: CurrentUser):
     async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM decks WHERE deck_id = $1 AND user_id = $2", deck_id, user["user_id"])
-        await conn.execute("DELETE FROM cards WHERE deck_id = $1 AND user_id = $2", deck_id, user["user_id"])
+        await conn.execute("DELETE FROM boostbac.decks WHERE deck_id = $1 AND user_id = $2", deck_id, user["user_id"])
+        await conn.execute("DELETE FROM boostbac.cards WHERE deck_id = $1 AND user_id = $2", deck_id, user["user_id"])
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Learning path (fixed curriculum skeleton, filled in by the student's own
+# scans, or by cloning official Bac exam content sourced by the app).
+#
+# Official content is owned by a shared OFFICIAL_CONTENT_USER_ID account so
+# every student sees the same starter decks — but a card's SM-2 progress
+# (ease_factor/repetitions/next_review_date) lives on ONE row tied to ONE
+# owner. If two students reviewed the same official card directly, their
+# progress would collide on that single row. So official decks are never
+# reviewed directly: unlock-official CLONES their cards into a fresh deck
+# owned by the calling student (own deck_id/card_ids, fresh SM-2 state),
+# then the student reviews their own copy like any scanned deck.
+# --------------------------------------------------------------------------
+OFFICIAL_CONTENT_USER_ID = "system_official"
+
+
+@api.get("/path/{subject}")
+async def get_path(subject: str, user: CurrentUser):
+    stream = user.get("stream") or "science"
+    async with pool.acquire() as conn:
+        chapters = await conn.fetch(
+            """SELECT chapter_id, name, name_ar, order_index FROM boostbac.path_chapters
+               WHERE stream = $1 AND subject = $2 ORDER BY order_index ASC""",
+            stream, subject,
+        )
+        if not chapters:
+            raise HTTPException(status_code=404, detail="No learning path for this subject/stream yet")
+        out = []
+        for ch in chapters:
+            stats = await conn.fetchrow(
+                """SELECT count(c.*) AS total,
+                          count(*) FILTER (WHERE c.next_review_date <= now()) AS due,
+                          count(*) FILTER (WHERE c.repetitions >= 3) AS mastered
+                   FROM boostbac.decks d JOIN boostbac.cards c ON c.deck_id = d.deck_id
+                   WHERE d.chapter_id = $1 AND d.user_id = $2""",
+                ch["chapter_id"], user["user_id"],
+            )
+            has_official = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM boostbac.decks WHERE chapter_id = $1 AND user_id = $2)",
+                ch["chapter_id"], OFFICIAL_CONTENT_USER_ID,
+            )
+            out.append({
+                "chapter_id": ch["chapter_id"], "name": ch["name"], "name_ar": ch["name_ar"],
+                "order_index": ch["order_index"],
+                "total_cards": stats["total"], "due_cards": stats["due"], "mastered_cards": stats["mastered"],
+                "has_official_content": bool(has_official),
+            })
+    return {"subject": subject, "stream": stream, "chapters": out}
+
+
+@api.get("/path/chapters/{chapter_id}/cards")
+async def get_chapter_cards(chapter_id: str, user: CurrentUser, limit: int = 10):
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT 1 FROM boostbac.path_chapters WHERE chapter_id = $1", chapter_id)
+        if not exists:
+            raise HTTPException(status_code=404, detail="Unknown chapter")
+        cards = await conn.fetch(
+            """SELECT c.* FROM boostbac.cards c JOIN boostbac.decks d ON d.deck_id = c.deck_id
+               WHERE d.chapter_id = $1 AND d.user_id = $2
+               ORDER BY c.next_review_date ASC LIMIT $3""",
+            chapter_id, user["user_id"], limit,
+        )
+    return {"cards": [_card_out(dict(c)) for c in cards]}
+
+
+@api.post("/path/chapters/{chapter_id}/unlock-official")
+async def unlock_official_chapter(chapter_id: str, user: CurrentUser):
+    async with pool.acquire() as conn:
+        official_decks = await conn.fetch(
+            "SELECT * FROM boostbac.decks WHERE chapter_id = $1 AND user_id = $2",
+            chapter_id, OFFICIAL_CONTENT_USER_ID,
+        )
+        if not official_decks:
+            raise HTTPException(status_code=404, detail="No official content for this chapter")
+        now = now_utc()
+        new_deck_id = gen_id("deck_")
+        async with conn.transaction():
+            first = official_decks[0]
+            await conn.execute(
+                """INSERT INTO boostbac.decks (deck_id, user_id, subject, topic, deck_name, language, created_at,
+                                        saved, attachment_base64, attachment_mime, chapter_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10)""",
+                new_deck_id, user["user_id"], first["subject"], first["topic"], first["deck_name"],
+                first["language"], now, first["attachment_base64"], first["attachment_mime"], chapter_id,
+            )
+            cloned = 0
+            for od in official_decks:
+                cards = await conn.fetch("SELECT * FROM boostbac.cards WHERE deck_id = $1", od["deck_id"])
+                for c in cards:
+                    await conn.execute(
+                        """INSERT INTO boostbac.cards (card_id, deck_id, user_id, subject, topic, question, answer,
+                                               difficulty, ease_factor, interval_days, repetitions,
+                                               next_review_date, last_reviewed_at, created_at, game_data)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 2.5, 0, 0, $9, NULL, $9, $10)""",
+                        gen_id("card_"), new_deck_id, user["user_id"], c["subject"], c["topic"],
+                        c["question"], c["answer"], c["difficulty"], now, c["game_data"],
+                    )
+                    cloned += 1
+    return {"deck_id": new_deck_id, "cards_cloned": cloned}
 
 
 # --------------------------------------------------------------------------
@@ -451,13 +670,13 @@ async def review_queue(user: CurrentUser, deck_id: Optional[str] = None, limit: 
     async with pool.acquire() as conn:
         if deck_id:
             due = await conn.fetch(
-                """SELECT * FROM cards WHERE user_id = $1 AND deck_id = $2 AND next_review_date <= now()
+                """SELECT * FROM boostbac.cards WHERE user_id = $1 AND deck_id = $2 AND next_review_date <= now()
                    ORDER BY next_review_date ASC""",
                 user["user_id"], deck_id,
             )
         else:
             due = await conn.fetch(
-                """SELECT * FROM cards WHERE user_id = $1 AND next_review_date <= now()
+                """SELECT * FROM boostbac.cards WHERE user_id = $1 AND next_review_date <= now()
                    ORDER BY next_review_date ASC""",
                 user["user_id"],
             )
@@ -478,10 +697,10 @@ class ReviewSubmit(BaseModel):
 
 async def _touch_streak(conn: asyncpg.Connection, user_id: str):
     today = now_utc().date()
-    s = await conn.fetchrow("SELECT * FROM streaks WHERE user_id = $1", user_id)
+    s = await conn.fetchrow("SELECT * FROM boostbac.streaks WHERE user_id = $1", user_id)
     if not s:
         await conn.execute(
-            "INSERT INTO streaks (user_id, current_streak, longest_streak, last_active_date) VALUES ($1, 1, 1, $2)",
+            "INSERT INTO boostbac.streaks (user_id, current_streak, longest_streak, last_active_date) VALUES ($1, 1, 1, $2)",
             user_id, today.isoformat(),
         )
         return
@@ -497,7 +716,7 @@ async def _touch_streak(conn: asyncpg.Connection, user_id: str):
         cur = 1
     longest = max(longest, cur)
     await conn.execute(
-        "UPDATE streaks SET current_streak = $2, longest_streak = $3, last_active_date = $4 WHERE user_id = $1",
+        "UPDATE boostbac.streaks SET current_streak = $2, longest_streak = $3, last_active_date = $4 WHERE user_id = $1",
         user_id, cur, longest, today.isoformat(),
     )
 
@@ -508,7 +727,7 @@ async def review_submit(inp: ReviewSubmit, user: CurrentUser):
         raise HTTPException(status_code=400, detail="Invalid rating")
     async with pool.acquire() as conn:
         card = await conn.fetchrow(
-            "SELECT * FROM cards WHERE card_id = $1 AND user_id = $2", inp.card_id, user["user_id"],
+            "SELECT * FROM boostbac.cards WHERE card_id = $1 AND user_id = $2", inp.card_id, user["user_id"],
         )
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
@@ -520,18 +739,18 @@ async def review_submit(inp: ReviewSubmit, user: CurrentUser):
         next_review = now + timedelta(minutes=offset_min)
         async with conn.transaction():
             await conn.execute(
-                """UPDATE cards SET ease_factor = $2, interval_days = $3, repetitions = $4,
+                """UPDATE boostbac.cards SET ease_factor = $2, interval_days = $3, repetitions = $4,
                        next_review_date = $5, last_reviewed_at = $6 WHERE card_id = $1""",
                 inp.card_id, ease, interval, reps, next_review, now,
             )
             await conn.execute(
-                """INSERT INTO review_logs (log_id, card_id, user_id, subject, topic, rating, quality, correct, reviewed_at)
+                """INSERT INTO boostbac.review_logs (log_id, card_id, user_id, subject, topic, rating, quality, correct, reviewed_at)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
                 gen_id("log_"), inp.card_id, user["user_id"], card["subject"], card["topic"],
                 inp.rating, quality, quality >= 3, now,
             )
             xp = RATING_XP[inp.rating]
-            await conn.execute("UPDATE users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], xp)
+            await conn.execute("UPDATE boostbac.users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], xp)
             await _touch_streak(conn, user["user_id"])
     return {"xp_earned": xp, "next_review": next_review, "repetitions": reps}
 
@@ -546,9 +765,9 @@ class SessionSummaryInput(BaseModel):
 async def review_complete(inp: SessionSummaryInput, user: CurrentUser):
     bonus = 15 if inp.reviewed >= 10 else 5
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], bonus)
-        fresh = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user["user_id"])
-        streak = await conn.fetchrow("SELECT * FROM streaks WHERE user_id = $1", user["user_id"])
+        await conn.execute("UPDATE boostbac.users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], bonus)
+        fresh = await conn.fetchrow("SELECT * FROM boostbac.users WHERE user_id = $1", user["user_id"])
+        streak = await conn.fetchrow("SELECT * FROM boostbac.streaks WHERE user_id = $1", user["user_id"])
     return {
         "bonus_xp": bonus,
         "total_xp": fresh["xp"] if fresh else 0,
@@ -567,23 +786,23 @@ async def home(user: CurrentUser):
             """SELECT count(*) AS total, count(*) FILTER (WHERE next_review_date <= now()) AS due,
                       count(*) FILTER (WHERE repetitions >= 3) AS mastered,
                       count(*) FILTER (WHERE repetitions < 3) AS active
-               FROM cards WHERE user_id = $1""",
+               FROM boostbac.cards WHERE user_id = $1""",
             user["user_id"],
         )
         logs_today = await conn.fetchval(
-            "SELECT count(*) FROM review_logs WHERE user_id = $1 AND reviewed_at >= date_trunc('day', now())",
+            "SELECT count(*) FROM boostbac.review_logs WHERE user_id = $1 AND reviewed_at >= date_trunc('day', now())",
             user["user_id"],
         )
-        streak = await conn.fetchrow("SELECT * FROM streaks WHERE user_id = $1", user["user_id"])
+        streak = await conn.fetchrow("SELECT * FROM boostbac.streaks WHERE user_id = $1", user["user_id"])
         decks = await conn.fetch(
-            "SELECT * FROM decks WHERE user_id = $1 AND saved = true ORDER BY created_at DESC",
+            "SELECT * FROM boostbac.decks WHERE user_id = $1 AND saved = true ORDER BY created_at DESC",
             user["user_id"],
         )
         deck_out = []
         for d in decks:
             dstats = await conn.fetchrow(
                 """SELECT count(*) AS total, count(*) FILTER (WHERE next_review_date <= now()) AS due
-                   FROM cards WHERE deck_id = $1""",
+                   FROM boostbac.cards WHERE deck_id = $1""",
                 d["deck_id"],
             )
             deck_out.append({
@@ -630,15 +849,15 @@ async def analytics(user: CurrentUser):
         subj_rows = await conn.fetch(
             """SELECT coalesce(subject, 'General') AS subject, count(*) AS total,
                       count(*) FILTER (WHERE correct) AS correct
-               FROM review_logs WHERE user_id = $1 GROUP BY 1""",
+               FROM boostbac.review_logs WHERE user_id = $1 GROUP BY 1""",
             user["user_id"],
         )
-        total_cards = await conn.fetchval("SELECT count(*) FROM cards WHERE user_id = $1", user["user_id"])
-        total_reviews = await conn.fetchval("SELECT count(*) FROM review_logs WHERE user_id = $1", user["user_id"])
+        total_cards = await conn.fetchval("SELECT count(*) FROM boostbac.cards WHERE user_id = $1", user["user_id"])
+        total_reviews = await conn.fetchval("SELECT count(*) FROM boostbac.review_logs WHERE user_id = $1", user["user_id"])
         curve_rows = await conn.fetch(
             """SELECT (reviewed_at AT TIME ZONE 'UTC')::date AS day,
                       count(*) AS reviews, count(*) FILTER (WHERE correct) AS correct
-               FROM review_logs
+               FROM boostbac.review_logs
                WHERE user_id = $1 AND reviewed_at >= now() - interval '14 days'
                GROUP BY 1""",
             user["user_id"],
@@ -690,13 +909,13 @@ class ExamGenInput(BaseModel):
 @api.post("/exams/generate")
 async def generate_exam(inp: ExamGenInput, user: CurrentUser):
     async with pool.acquire() as conn:
-        cards = await conn.fetch("SELECT * FROM cards WHERE user_id = $1", user["user_id"])
+        cards = await conn.fetch("SELECT * FROM boostbac.cards WHERE user_id = $1", user["user_id"])
         if not cards:
             raise HTTPException(status_code=422, detail="No cards yet. Scan some notes first!")
         subj_rows = await conn.fetch(
             """SELECT coalesce(subject, 'General') AS subject, count(*) AS total,
                       count(*) FILTER (WHERE correct) AS correct
-               FROM review_logs WHERE user_id = $1 GROUP BY 1""",
+               FROM boostbac.review_logs WHERE user_id = $1 GROUP BY 1""",
             user["user_id"],
         )
         subj = {r["subject"]: {"total": r["total"], "correct": r["correct"]} for r in subj_rows}
@@ -730,7 +949,7 @@ async def generate_exam(inp: ExamGenInput, user: CurrentUser):
         } for c in chosen]
         topics = list({c["subject"] for c in chosen})
         await conn.execute(
-            """INSERT INTO exams (exam_id, user_id, topics_covered, num_questions, created_at, score)
+            """INSERT INTO boostbac.exams (exam_id, user_id, topics_covered, num_questions, created_at, score)
                VALUES ($1, $2, $3, $4, $5, NULL)""",
             exam_id, user["user_id"], topics, len(questions), now_utc(),
         )
@@ -758,12 +977,12 @@ async def submit_exam(inp: ExamSubmit, user: CurrentUser):
                   "accuracy": round(v["correct"] / v["total"], 2)} for s, v in by_subject.items()]
     async with pool.acquire() as conn:
         await conn.execute(
-            """UPDATE exams SET score = $2, correct = $3, total = $4, breakdown = $5,
+            """UPDATE boostbac.exams SET score = $2, correct = $3, total = $4, breakdown = $5,
                    duration_seconds = $6, taken_at = $7 WHERE exam_id = $1""",
             inp.exam_id, score, correct, total, breakdown, inp.duration_seconds, now_utc(),
         )
         xp = correct * 5
-        await conn.execute("UPDATE users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], xp)
+        await conn.execute("UPDATE boostbac.users SET xp = xp + $2 WHERE user_id = $1", user["user_id"], xp)
     return {"score": score, "correct": correct, "total": total, "breakdown": breakdown, "xp_earned": xp}
 
 
@@ -771,7 +990,7 @@ async def submit_exam(inp: ExamSubmit, user: CurrentUser):
 async def exam_history(user: CurrentUser):
     async with pool.acquire() as conn:
         exams = await conn.fetch(
-            "SELECT * FROM exams WHERE user_id = $1 AND score IS NOT NULL ORDER BY taken_at DESC LIMIT 50",
+            "SELECT * FROM boostbac.exams WHERE user_id = $1 AND score IS NOT NULL ORDER BY taken_at DESC LIMIT 50",
             user["user_id"],
         )
     return rows_to_list(exams)
@@ -799,11 +1018,11 @@ async def badges(user: CurrentUser):
     async with pool.acquire() as conn:
         agg = await conn.fetchrow(
             """SELECT count(*) AS total, count(*) FILTER (WHERE repetitions >= 3) AS mastered
-               FROM cards WHERE user_id = $1""",
+               FROM boostbac.cards WHERE user_id = $1""",
             user["user_id"],
         )
-        total_reviews = await conn.fetchval("SELECT count(*) FROM review_logs WHERE user_id = $1", user["user_id"])
-        streak = await conn.fetchrow("SELECT * FROM streaks WHERE user_id = $1", user["user_id"])
+        total_reviews = await conn.fetchval("SELECT count(*) FROM boostbac.review_logs WHERE user_id = $1", user["user_id"])
+        streak = await conn.fetchrow("SELECT * FROM boostbac.streaks WHERE user_id = $1", user["user_id"])
     metrics = {
         "total_cards": agg["total"],
         "mastered": agg["mastered"],
@@ -834,10 +1053,10 @@ async def leaderboard(user: CurrentUser):
     cutoff = now_utc() - timedelta(days=7)
     async with pool.acquire() as conn:
         logs = await conn.fetch(
-            "SELECT user_id, rating FROM review_logs WHERE reviewed_at >= $1", cutoff,
+            "SELECT user_id, rating FROM boostbac.review_logs WHERE reviewed_at >= $1", cutoff,
         )
         exams = await conn.fetch(
-            "SELECT user_id, correct FROM exams WHERE taken_at >= $1 AND score IS NOT NULL", cutoff,
+            "SELECT user_id, correct FROM boostbac.exams WHERE taken_at >= $1 AND score IS NOT NULL", cutoff,
         )
         xp_by_user: dict = {}
         for l in logs:
@@ -849,7 +1068,7 @@ async def leaderboard(user: CurrentUser):
         umap = {}
         if ids:
             urows = await conn.fetch(
-                "SELECT user_id, name, picture FROM users WHERE user_id = ANY($1::text[])", ids,
+                "SELECT user_id, name, picture FROM boostbac.users WHERE user_id = ANY($1::text[])", ids,
             )
             umap = {u["user_id"]: u for u in urows}
 
@@ -878,11 +1097,11 @@ async def admin_teachers(admin: AdminUser, status: Optional[str] = None):
     async with pool.acquire() as conn:
         if status:
             teachers = await conn.fetch(
-                "SELECT * FROM users WHERE role = 'teacher' AND status = $1 ORDER BY created_at DESC", status,
+                "SELECT * FROM boostbac.users WHERE role = 'teacher' AND status = $1 ORDER BY created_at DESC", status,
             )
         else:
             teachers = await conn.fetch(
-                "SELECT * FROM users WHERE role = 'teacher' ORDER BY created_at DESC",
+                "SELECT * FROM boostbac.users WHERE role = 'teacher' ORDER BY created_at DESC",
             )
     return [public_user(dict(t)) for t in teachers]
 
@@ -890,10 +1109,10 @@ async def admin_teachers(admin: AdminUser, status: Optional[str] = None):
 @api.get("/admin/stats")
 async def admin_stats(admin: AdminUser):
     async with pool.acquire() as conn:
-        pending = await conn.fetchval("SELECT count(*) FROM users WHERE role = 'teacher' AND status = 'pending'")
-        teachers = await conn.fetchval("SELECT count(*) FROM users WHERE role = 'teacher' AND status = 'approved'")
-        students = await conn.fetchval("SELECT count(*) FROM users WHERE role = 'student'")
-        resources = await conn.fetchval("SELECT count(*) FROM resources")
+        pending = await conn.fetchval("SELECT count(*) FROM boostbac.users WHERE role = 'teacher' AND status = 'pending'")
+        teachers = await conn.fetchval("SELECT count(*) FROM boostbac.users WHERE role = 'teacher' AND status = 'approved'")
+        students = await conn.fetchval("SELECT count(*) FROM boostbac.users WHERE role = 'student'")
+        resources = await conn.fetchval("SELECT count(*) FROM boostbac.resources")
     return {"pending_teachers": pending, "approved_teachers": teachers, "students": students, "resources": resources}
 
 
@@ -901,7 +1120,7 @@ async def admin_stats(admin: AdminUser):
 async def approve_teacher(teacher_id: str, admin: AdminUser):
     async with pool.acquire() as conn:
         r = await conn.execute(
-            "UPDATE users SET status = 'approved', approved_at = $2 WHERE user_id = $1 AND role = 'teacher'",
+            "UPDATE boostbac.users SET status = 'approved', approved_at = $2 WHERE user_id = $1 AND role = 'teacher'",
             teacher_id, now_utc(),
         )
     if r == "UPDATE 0":
@@ -913,7 +1132,7 @@ async def approve_teacher(teacher_id: str, admin: AdminUser):
 async def reject_teacher(teacher_id: str, admin: AdminUser):
     async with pool.acquire() as conn:
         r = await conn.execute(
-            "UPDATE users SET status = 'rejected', rejected_at = $2 WHERE user_id = $1 AND role = 'teacher'",
+            "UPDATE boostbac.users SET status = 'rejected', rejected_at = $2 WHERE user_id = $1 AND role = 'teacher'",
             teacher_id, now_utc(),
         )
     if r == "UPDATE 0":
@@ -940,7 +1159,7 @@ async def create_resource(inp: ResourceInput, teacher: ApprovedTeacher):
     created_at = now_utc()
     async with pool.acquire() as conn:
         await conn.execute(
-            """INSERT INTO resources (resource_id, teacher_id, teacher_name, type, subject, stream, title,
+            """INSERT INTO boostbac.resources (resource_id, teacher_id, teacher_name, type, subject, stream, title,
                                        description, attachment_base64, attachment_mime, has_attachment, created_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
             rid, teacher["user_id"], teacher.get("name"), inp.type, inp.subject, inp.stream or "all",
@@ -977,7 +1196,7 @@ async def list_resources(user: CurrentUser, type: Optional[str] = None, subject:
         conds.append(f"subject = ${len(params)}")
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
     async with pool.acquire() as conn:
-        rows = await conn.fetch(f"SELECT * FROM resources {where} ORDER BY created_at DESC LIMIT 300", *params)
+        rows = await conn.fetch(f"SELECT * FROM boostbac.resources {where} ORDER BY created_at DESC LIMIT 300", *params)
     return [_resource_card(dict(r)) for r in rows]
 
 
@@ -985,7 +1204,7 @@ async def list_resources(user: CurrentUser, type: Optional[str] = None, subject:
 async def my_resources(teacher: ApprovedTeacher):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM resources WHERE teacher_id = $1 ORDER BY created_at DESC LIMIT 300",
+            "SELECT * FROM boostbac.resources WHERE teacher_id = $1 ORDER BY created_at DESC LIMIT 300",
             teacher["user_id"],
         )
     return [_resource_card(dict(r)) for r in rows]
@@ -994,7 +1213,7 @@ async def my_resources(teacher: ApprovedTeacher):
 @api.get("/resources/{resource_id}")
 async def get_resource(resource_id: str, user: CurrentUser):
     async with pool.acquire() as conn:
-        r = await conn.fetchrow("SELECT * FROM resources WHERE resource_id = $1", resource_id)
+        r = await conn.fetchrow("SELECT * FROM boostbac.resources WHERE resource_id = $1", resource_id)
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
     return dict(r)  # includes attachment_base64 for viewing
@@ -1004,7 +1223,7 @@ async def get_resource(resource_id: str, user: CurrentUser):
 async def delete_resource(resource_id: str, teacher: ApprovedTeacher):
     async with pool.acquire() as conn:
         await conn.execute(
-            "DELETE FROM resources WHERE resource_id = $1 AND teacher_id = $2", resource_id, teacher["user_id"],
+            "DELETE FROM boostbac.resources WHERE resource_id = $1 AND teacher_id = $2", resource_id, teacher["user_id"],
         )
     return {"ok": True}
 
@@ -1012,10 +1231,10 @@ async def delete_resource(resource_id: str, teacher: ApprovedTeacher):
 @api.get("/teachers")
 async def list_teachers(user: CurrentUser):
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM users WHERE role = 'teacher' AND status = 'approved'")
+        rows = await conn.fetch("SELECT * FROM boostbac.users WHERE role = 'teacher' AND status = 'approved'")
         out = []
         for t in rows:
-            count = await conn.fetchval("SELECT count(*) FROM resources WHERE teacher_id = $1", t["user_id"])
+            count = await conn.fetchval("SELECT count(*) FROM boostbac.resources WHERE teacher_id = $1", t["user_id"])
             out.append({"user_id": t["user_id"], "name": t["name"], "picture": t["picture"],
                         "subject": t["stream"], "resources": count})
     return out
@@ -1035,16 +1254,16 @@ def _conv_id(a: str, b: str) -> str:
 @api.post("/chat/start")
 async def start_chat(inp: StartChatInput, user: CurrentUser):
     async with pool.acquire() as conn:
-        other = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", inp.other_user_id)
+        other = await conn.fetchrow("SELECT * FROM boostbac.users WHERE user_id = $1", inp.other_user_id)
         if not other:
             raise HTTPException(status_code=404, detail="User not found")
         cid = _conv_id(user["user_id"], other["user_id"])
-        existing = await conn.fetchrow("SELECT 1 FROM conversations WHERE conversation_id = $1", cid)
+        existing = await conn.fetchrow("SELECT 1 FROM boostbac.conversations WHERE conversation_id = $1", cid)
         if not existing:
             now = now_utc()
             names = {user["user_id"]: user.get("name"), other["user_id"]: other["name"]}
             await conn.execute(
-                """INSERT INTO conversations (conversation_id, participants, names, last_message, updated_at, created_at)
+                """INSERT INTO boostbac.conversations (conversation_id, participants, names, last_message, updated_at, created_at)
                    VALUES ($1, $2, $3, NULL, $4, $4)""",
                 cid, [user["user_id"], other["user_id"]], names, now,
             )
@@ -1055,7 +1274,7 @@ async def start_chat(inp: StartChatInput, user: CurrentUser):
 async def list_conversations(user: CurrentUser):
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM conversations WHERE $1 = ANY(participants) ORDER BY updated_at DESC",
+            "SELECT * FROM boostbac.conversations WHERE $1 = ANY(participants) ORDER BY updated_at DESC",
             user["user_id"],
         )
     out = []
@@ -1079,11 +1298,11 @@ class MessageInput(BaseModel):
 @api.get("/chat/{conversation_id}/messages")
 async def get_messages(conversation_id: str, user: CurrentUser):
     async with pool.acquire() as conn:
-        conv = await conn.fetchrow("SELECT * FROM conversations WHERE conversation_id = $1", conversation_id)
+        conv = await conn.fetchrow("SELECT * FROM boostbac.conversations WHERE conversation_id = $1", conversation_id)
         if not conv or user["user_id"] not in conv["participants"]:
             raise HTTPException(status_code=403, detail="Not allowed")
         msgs = await conn.fetch(
-            "SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC", conversation_id,
+            "SELECT * FROM boostbac.messages WHERE conversation_id = $1 ORDER BY created_at ASC", conversation_id,
         )
     other_id = next((p for p in conv["participants"] if p != user["user_id"]), None)
     names = conv["names"] or {}
@@ -1093,18 +1312,18 @@ async def get_messages(conversation_id: str, user: CurrentUser):
 @api.post("/chat/{conversation_id}/messages")
 async def send_message(conversation_id: str, inp: MessageInput, user: CurrentUser):
     async with pool.acquire() as conn:
-        conv = await conn.fetchrow("SELECT * FROM conversations WHERE conversation_id = $1", conversation_id)
+        conv = await conn.fetchrow("SELECT * FROM boostbac.conversations WHERE conversation_id = $1", conversation_id)
         if not conv or user["user_id"] not in conv["participants"]:
             raise HTTPException(status_code=403, detail="Not allowed")
         msg_id = gen_id("msg_")
         now = now_utc()
         await conn.execute(
-            """INSERT INTO messages (message_id, conversation_id, sender_id, sender_name, text, created_at)
+            """INSERT INTO boostbac.messages (message_id, conversation_id, sender_id, sender_name, text, created_at)
                VALUES ($1, $2, $3, $4, $5, $6)""",
             msg_id, conversation_id, user["user_id"], user.get("name"), inp.text, now,
         )
         await conn.execute(
-            "UPDATE conversations SET last_message = $2, updated_at = $3 WHERE conversation_id = $1",
+            "UPDATE boostbac.conversations SET last_message = $2, updated_at = $3 WHERE conversation_id = $1",
             conversation_id, inp.text[:120], now,
         )
     return {
@@ -1138,10 +1357,10 @@ async def startup():
     admin_pw = os.environ.get("ADMIN_PASSWORD", "")
     if admin_email and admin_pw:
         async with pool.acquire() as conn:
-            existing = await conn.fetchrow("SELECT 1 FROM users WHERE email = $1", admin_email)
+            existing = await conn.fetchrow("SELECT 1 FROM boostbac.users WHERE email = $1", admin_email)
             if not existing:
                 await conn.execute(
-                    """INSERT INTO users (user_id, name, email, password_hash, role, status, auth_provider, created_at)
+                    """INSERT INTO boostbac.users (user_id, name, email, password_hash, role, status, auth_provider, created_at)
                        VALUES ($1, 'Admin', $2, $3, 'admin', 'active', 'email', $4)""",
                     gen_id("user_"), admin_email,
                     bcrypt.hashpw(admin_pw.encode(), bcrypt.gensalt()).decode(), now_utc(),

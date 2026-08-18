@@ -29,7 +29,7 @@ export default function Pending() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={["#0F3B45", colors.surface]} style={StyleSheet.absoluteFill} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} />
+      <LinearGradient colors={[colors.brandTertiary, colors.surface]} style={StyleSheet.absoluteFill} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} />
       <View style={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom + spacing.xl }]}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xl }}>
           {rejected ? (

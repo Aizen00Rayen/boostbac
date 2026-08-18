@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Platform, NativeSyntheticEvent, TextInputEndEditingEventData } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,7 +14,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useBadges } from "@/src/context/BadgeContext";
 import { getReminderEnabled, getReminderHour, enableReminder, disableReminder } from "@/src/notifications";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
-import { RText, Card, PrimaryButton } from "@/src/components/ui";
+import { RText, Card, PrimaryButton, Field } from "@/src/components/ui";
 import { PaperPlane } from "@/src/components/graphics";
 
 const STREAMS = ["math", "science", "tech", "management", "letters", "languages"] as const;
@@ -104,7 +104,7 @@ export default function Profile() {
         {/* Identity — shareable card */}
         <ViewShot ref={shotRef} options={{ format: "png", quality: 0.95 }} style={{ borderRadius: radius.lg, overflow: "hidden" }}>
           <View style={styles.shareCard}>
-            <LinearGradient colors={["#0F3B45", colors.surface]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+            <LinearGradient colors={[colors.brandTertiary, colors.surface]} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: spacing.lg }}>
               <PaperPlane size={20} color={colors.brand} />
               <RText weight="heavy" style={{ color: colors.brand, fontSize: font.lg, letterSpacing: 1 }}>BOOSTBAC</RText>
@@ -240,7 +240,7 @@ export default function Profile() {
             testID="exam-date-input"
             placeholder="YYYY-MM-DD"
             defaultValue={user.exam_date || ""}
-            onEndEditing={(e) => {
+            onEndEditing={(e: NativeSyntheticEvent<TextInputEndEditingEventData>) => {
               const v = e.nativeEvent.text.trim();
               if (/^\d{4}-\d{2}-\d{2}$/.test(v)) updateProfile({ exam_date: v });
             }}

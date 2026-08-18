@@ -16,7 +16,7 @@ export default function Welcome() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#0F3B45", colors.surface]}
+        colors={[colors.brandTertiary, colors.surface]}
         style={StyleSheet.absoluteFill}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 0.9 }}
@@ -42,6 +42,7 @@ export default function Welcome() {
         <View style={styles.logoGlow}>
           <Image source={require("../assets/images/boostbac.png")} style={styles.logo} contentFit="contain" />
         </View>
+        <RText weight="heavy" style={styles.wordmark}>BoostBac</RText>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: spacing.lg }}>
           <PaperPlane size={22} />
           <RText weight="medium" style={styles.tagline}>
@@ -82,7 +83,8 @@ const styles = StyleSheet.create({
     shadowRadius: 40,
     shadowOffset: { width: 0, height: 0 },
   },
-  logo: { width: 300, height: 150 },
+  logo: { width: 140, height: 160 },
+  wordmark: { color: colors.onSurface, fontSize: font["3xl"], marginTop: spacing.sm, letterSpacing: 0.5 },
   tagline: { color: colors.onSurfaceSecondary, fontSize: font.lg, textAlign: "center" },
   bottom: { paddingHorizontal: spacing.lg, gap: spacing.md },
   loginLink: { paddingVertical: spacing.md },

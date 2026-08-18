@@ -30,7 +30,7 @@ export default function RootLayout() {
         <KeyboardProvider>
         <I18nProvider>
           <AuthProvider>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <View style={{ flex: 1, backgroundColor: colors.surface }}>
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface }, animation: "fade" }}>
                 <Stack.Screen name="index" />
@@ -45,6 +45,8 @@ export default function RootLayout() {
                 <Stack.Screen name="exam" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
                 <Stack.Screen name="create-post" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
                 <Stack.Screen name="resource/[id]" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+                <Stack.Screen name="path/[subject]" options={{ animation: "slide_from_right" }} />
+                <Stack.Screen name="lesson/[chapter_id]" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
                 <Stack.Screen name="chat/[id]" options={{ animation: "slide_from_right" }} />
               </Stack>
             </View>

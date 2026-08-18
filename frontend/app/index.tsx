@@ -4,7 +4,8 @@ import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { useAuth } from "@/src/context/AuthContext";
 import { useI18n } from "@/src/i18n";
-import { colors } from "@/src/theme";
+import { colors, font, spacing } from "@/src/theme";
+import { RText } from "@/src/components/ui";
 import { PaperPlaneLoader } from "@/src/components/graphics";
 
 export default function Index() {
@@ -28,6 +29,7 @@ export default function Index() {
   return (
     <View style={styles.container} testID="splash-screen">
       <Image source={require("../assets/images/boostbac.png")} style={styles.logo} contentFit="contain" />
+      <RText weight="heavy" style={styles.wordmark}>BoostBac</RText>
       <View style={{ height: 40 }} />
       <PaperPlaneLoader size={40} />
     </View>
@@ -36,5 +38,6 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", padding: 24 },
-  logo: { width: 260, height: 130 },
+  logo: { width: 120, height: 138 },
+  wordmark: { color: colors.onSurface, fontSize: font["2xl"], marginTop: spacing.sm, letterSpacing: 0.5 },
 });

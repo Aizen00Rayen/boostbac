@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { useI18n } from "@/src/i18n";
+import { ApiError, localizeError } from "@/src/api";
 import { colors, spacing, font, radius } from "@/src/theme";
 import { RText, PrimaryButton, Field } from "@/src/components/ui";
 
@@ -27,7 +28,7 @@ export default function Signup() {
   const onSubmit = async () => {
     setErr("");
     if (!name.trim() || !email.trim() || password.length < 4) {
-      setErr(t("name") + " / " + t("email") + " / " + t("password"));
+      setErr(t("fillRequired"));
       return;
     }
     setLoading(true);
@@ -35,7 +36,7 @@ export default function Signup() {
       await register(name.trim(), email.trim(), password, stream, role);
       router.replace(role === "teacher" ? "/pending" : "/(tabs)");
     } catch (e: any) {
-      setErr(e?.message || "Error");
+      setErr(e instanceof ApiError && e.status === 409 ? t("errorEmailTaken") : localizeError(e, t));
     } finally {
       setLoading(false);
     }

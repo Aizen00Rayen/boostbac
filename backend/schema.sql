@@ -1,7 +1,13 @@
 -- BoostBac schema for Supabase (Postgres).
 -- Run this once against your Supabase project (SQL Editor, or `psql $DATABASE_URL -f schema.sql`).
+-- All tables live in the `boostbac` schema (not `public`) to avoid colliding with other
+-- apps that may share the same Supabase project. server.py sets search_path per-connection
+-- but also fully qualifies every query with `boostbac.` since connection poolers don't
+-- reliably preserve session-level SET search_path across pooled connections.
 
-create table if not exists users (
+create schema if not exists boostbac;
+
+create table if not exists boostbac.users (
     user_id         text primary key,
     name            text,
     email           text not null unique,
@@ -20,37 +26,55 @@ create table if not exists users (
     rejected_at     timestamptz
 );
 
-create table if not exists user_sessions (
+create table if not exists boostbac.user_sessions (
     session_token   text primary key,
-    user_id         text not null references users(user_id) on delete cascade,
+    user_id         text not null references boostbac.users(user_id) on delete cascade,
     created_at      timestamptz default now(),
     expires_at      timestamptz not null
 );
-create index if not exists idx_user_sessions_expires on user_sessions(expires_at);
+create index if not exists idx_user_sessions_expires on boostbac.user_sessions(expires_at);
 
-create table if not exists streaks (
-    user_id             text primary key references users(user_id) on delete cascade,
+create table if not exists boostbac.streaks (
+    user_id             text primary key references boostbac.users(user_id) on delete cascade,
     current_streak      integer default 0,
     longest_streak       integer default 0,
     last_active_date    text
 );
 
-create table if not exists decks (
-    deck_id     text primary key,
-    user_id     text not null references users(user_id) on delete cascade,
-    subject     text,
-    topic       text,
-    deck_name   text,
-    language    text,
-    created_at  timestamptz default now(),
-    saved       boolean default false
+-- Fixed curriculum skeleton for the Duolingo-style learning path. Seeded with a
+-- best-effort reconstruction of the real Bac program (verified by the app owner);
+-- plain editable rows on purpose so a wrong chapter name/order is a one-line SQL
+-- fix, not a code change.
+create table if not exists boostbac.path_chapters (
+    chapter_id   text primary key,
+    stream       text not null,
+    subject      text not null,
+    name         text not null,
+    name_ar      text,
+    order_index  integer not null
 );
-create index if not exists idx_decks_user on decks(user_id);
+create index if not exists idx_path_chapters_stream_subject on boostbac.path_chapters(stream, subject, order_index);
 
-create table if not exists cards (
+create table if not exists boostbac.decks (
+    deck_id             text primary key,
+    user_id             text not null references boostbac.users(user_id) on delete cascade,
+    subject             text,
+    topic               text,
+    deck_name           text,
+    language            text,
+    created_at          timestamptz default now(),
+    saved               boolean default false,
+    attachment_base64   text,
+    attachment_mime     text,
+    chapter_id          text references boostbac.path_chapters(chapter_id) on delete set null
+);
+create index if not exists idx_decks_user on boostbac.decks(user_id);
+create index if not exists idx_decks_chapter on boostbac.decks(chapter_id);
+
+create table if not exists boostbac.cards (
     card_id             text primary key,
-    deck_id             text references decks(deck_id) on delete cascade,
-    user_id             text not null references users(user_id) on delete cascade,
+    deck_id             text references boostbac.decks(deck_id) on delete cascade,
+    user_id             text not null references boostbac.users(user_id) on delete cascade,
     subject             text,
     topic               text,
     question            text,
@@ -61,16 +85,17 @@ create table if not exists cards (
     repetitions         integer default 0,
     next_review_date    timestamptz not null default now(),
     last_reviewed_at    timestamptz,
-    created_at          timestamptz default now()
+    created_at          timestamptz default now(),
+    game_data           jsonb
 );
-create index if not exists idx_cards_user on cards(user_id);
-create index if not exists idx_cards_deck on cards(deck_id);
-create index if not exists idx_cards_due on cards(user_id, next_review_date);
+create index if not exists idx_cards_user on boostbac.cards(user_id);
+create index if not exists idx_cards_deck on boostbac.cards(deck_id);
+create index if not exists idx_cards_due on boostbac.cards(user_id, next_review_date);
 
-create table if not exists review_logs (
+create table if not exists boostbac.review_logs (
     log_id       text primary key,
     card_id      text,
-    user_id      text not null references users(user_id) on delete cascade,
+    user_id      text not null references boostbac.users(user_id) on delete cascade,
     subject      text,
     topic        text,
     rating       text,
@@ -78,12 +103,12 @@ create table if not exists review_logs (
     correct      boolean,
     reviewed_at  timestamptz default now()
 );
-create index if not exists idx_review_logs_user on review_logs(user_id);
-create index if not exists idx_review_logs_reviewed_at on review_logs(reviewed_at);
+create index if not exists idx_review_logs_user on boostbac.review_logs(user_id);
+create index if not exists idx_review_logs_reviewed_at on boostbac.review_logs(reviewed_at);
 
-create table if not exists exams (
+create table if not exists boostbac.exams (
     exam_id          text primary key,
-    user_id          text not null references users(user_id) on delete cascade,
+    user_id          text not null references boostbac.users(user_id) on delete cascade,
     topics_covered   text[],
     num_questions    integer,
     created_at       timestamptz default now(),
@@ -94,11 +119,11 @@ create table if not exists exams (
     duration_seconds integer,
     taken_at         timestamptz
 );
-create index if not exists idx_exams_user on exams(user_id);
+create index if not exists idx_exams_user on boostbac.exams(user_id);
 
-create table if not exists resources (
+create table if not exists boostbac.resources (
     resource_id         text primary key,
-    teacher_id          text not null references users(user_id) on delete cascade,
+    teacher_id          text not null references boostbac.users(user_id) on delete cascade,
     teacher_name        text,
     type                text,
     subject             text,
@@ -110,9 +135,9 @@ create table if not exists resources (
     has_attachment      boolean default false,
     created_at          timestamptz default now()
 );
-create index if not exists idx_resources_teacher on resources(teacher_id);
+create index if not exists idx_resources_teacher on boostbac.resources(teacher_id);
 
-create table if not exists conversations (
+create table if not exists boostbac.conversations (
     conversation_id  text primary key,
     participants     text[] not null,
     names            jsonb,
@@ -120,14 +145,14 @@ create table if not exists conversations (
     updated_at       timestamptz default now(),
     created_at       timestamptz default now()
 );
-create index if not exists idx_conversations_participants on conversations using gin(participants);
+create index if not exists idx_conversations_participants on boostbac.conversations using gin(participants);
 
-create table if not exists messages (
+create table if not exists boostbac.messages (
     message_id       text primary key,
-    conversation_id  text not null references conversations(conversation_id) on delete cascade,
+    conversation_id  text not null references boostbac.conversations(conversation_id) on delete cascade,
     sender_id        text,
     sender_name      text,
     text             text,
     created_at       timestamptz default now()
 );
-create index if not exists idx_messages_conversation on messages(conversation_id);
+create index if not exists idx_messages_conversation on boostbac.messages(conversation_id);

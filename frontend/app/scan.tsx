@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Linking } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -9,7 +9,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { api } from "@/src/api";
+import { api, ApiError, localizeError } from "@/src/api";
 import { useI18n } from "@/src/i18n";
 import { colors, spacing, font, radius, glow } from "@/src/theme";
 import { RText, PrimaryButton, Field, Card } from "@/src/components/ui";
@@ -21,6 +21,7 @@ type Step = "capture" | "generating" | "review";
 export default function Scan() {
   const { t, isRTL } = useI18n();
   const router = useRouter();
+  const { chapter_id, chapter_name } = useLocalSearchParams<{ chapter_id?: string; chapter_name?: string }>();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -29,6 +30,7 @@ export default function Scan() {
   const [cards, setCards] = useState<CardT[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [attachment, setAttachment] = useState<{ base64: string; mime: string } | null>(null);
 
   const generate = async (image_base64: string, mime: string) => {
     setStep("generating");
@@ -41,10 +43,11 @@ export default function Scan() {
       });
       setDeck(res.deck);
       setCards(res.cards);
+      setAttachment({ base64: image_base64, mime });
       setStep("review");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(e instanceof ApiError && e.status === 422 ? t("errorNoExercises") : localizeError(e, t));
       setStep("capture");
     }
   };
@@ -54,7 +57,7 @@ export default function Scan() {
       const pic = await cameraRef.current?.takePictureAsync({ base64: true, quality: 0.6 });
       if (pic?.base64) await generate(pic.base64, "image/jpeg");
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(localizeError(e, t));
     }
   };
 
@@ -76,18 +79,24 @@ export default function Scan() {
       const b64 = await FileSystem.readAsStringAsync(res.assets[0].uri, { encoding: FileSystem.EncodingType.Base64 });
       await generate(b64, "application/pdf");
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(localizeError(e, t));
     }
   };
 
   const saveDeck = async () => {
     setSaving(true);
     try {
-      await api("/decks/save", { method: "POST", body: { deck, cards } });
+      const deckToSave = { ...deck };
+      if (attachment) {
+        deckToSave.attachment_base64 = attachment.base64;
+        deckToSave.attachment_mime = attachment.mime;
+      }
+      if (chapter_id) deckToSave.chapter_id = chapter_id;
+      await api("/decks/save", { method: "POST", body: { deck: deckToSave, cards } });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e: any) {
-      setError(e?.message || "Error");
+      setError(localizeError(e, t));
     } finally {
       setSaving(false);
     }
@@ -121,6 +130,12 @@ export default function Scan() {
           <View style={{ width: 44 }} />
         </View>
         <KeyboardAwareScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }} bottomOffset={90} showsVerticalScrollIndicator={false}>
+          {chapter_name ? (
+            <View style={styles.chapterBanner} testID="chapter-banner">
+              <Ionicons name="map" size={16} color={colors.brand} />
+              <RText weight="bold" style={{ color: colors.brand, fontSize: font.sm }}>{chapter_name}</RText>
+            </View>
+          ) : null}
           <RText style={{ color: colors.onSurfaceSecondary, marginBottom: spacing.md }}>{t("reviewCards")} · {cards.length}</RText>
           {cards.map((c, i) => (
             <Card key={c.id} style={{ marginBottom: spacing.md }} testID={`edit-card-${i}`}>
@@ -218,6 +233,7 @@ const styles = StyleSheet.create({
   shutter: { width: 78, height: 78, borderRadius: 39, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   shutterInner: { width: 62, height: 62, borderRadius: 31, borderWidth: 4, borderColor: colors.surface, backgroundColor: colors.brand },
   diffTag: { backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill },
+  chapterBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.brandTertiary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
   fieldLabel: { color: colors.onSurfaceSecondary, fontSize: font.sm, marginBottom: 6, marginTop: spacing.sm },
   multiField: { height: undefined, minHeight: 54, paddingTop: spacing.md, paddingBottom: spacing.md, textAlignVertical: "top" },
   stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.lg, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
