@@ -89,6 +89,13 @@ const STRINGS: Record<string, { ar: string; fr: string }> = {
   openSettings: { ar: "حل الإعدادات", fr: "Ouvrir les réglages" },
   question: { ar: "السؤال", fr: "Question" },
   answer: { ar: "الجواب", fr: "Réponse" },
+  addPage: { ar: "زيد صفحة", fr: "Ajouter une page" },
+  pagesReady: { ar: "صفحة زدتها", fr: "page(s) ajoutée(s)" },
+  generateCards: { ar: "طلع البطاقات", fr: "Générer les cartes" },
+  removePage: { ar: "احذف", fr: "Retirer" },
+  scanHintPlaceholder: { ar: "قول لينا على أي مادة (اختياري)", fr: "Précise la matière (optionnel)" },
+  maxPagesReached: { ar: "توصلت للحد الأقصى ديال الصفحات", fr: "Nombre maximum de pages atteint" },
+  multiPageHint: { ar: "التمرين موزع على بزاف صفحات؟ صوّرهم بالتوالي ثم اضغط طلع البطاقات", fr: "Exercice sur plusieurs pages ? Prends-les dans l'ordre puis génère" },
   // dashboard
   weaknessMap: { ar: "نقاط الضعف تاعك", fr: "Carte des faiblesses" },
   forgettingCurve: { ar: "منحنى النسيان", fr: "Courbe d'oubli" },

@@ -259,17 +259,27 @@ async def update_profile(inp: ProfileUpdate, user: CurrentUser):
 # --------------------------------------------------------------------------
 # AI flashcard generation
 # --------------------------------------------------------------------------
+class ImagePart(BaseModel):
+    data: str  # base64 (no data-uri prefix needed)
+    mime_type: Optional[str] = "image/jpeg"
+
+
 class GenerateInput(BaseModel):
-    image_base64: str  # base64 of image OR pdf (no data-uri prefix needed)
+    image_base64: Optional[str] = None  # legacy single image/pdf path
     mime_type: Optional[str] = "image/jpeg"  # image/jpeg | image/png | application/pdf
+    images: Optional[List[ImagePart]] = None  # multi-photo capture: several pages of ONE exercise sheet, in order
     hint: Optional[str] = None  # optional subject hint
 
 
+MAX_GEN_PAGES = 8
+
 GEN_SYSTEM = (
     "You are BoostBac, an expert tutor for Algerian Baccalaureat students. "
-    "You receive a photo or PDF of a student's EXERCISE SHEET: one exercise, or a numbered series of exercises "
-    "(e.g. 'Exercice 1', 'تمرين 2', 'Problem 3'), possibly spanning multiple pages. "
+    "You receive one or more photos, or a PDF, of a student's EXERCISE SHEET: one exercise, or a numbered series "
+    "of exercises (e.g. 'Exercice 1', 'تمرين 2', 'Problem 3'), possibly spanning multiple pages/photos. "
     "Read ALL the text (OCR), including any diagrams, tables, or figures described in words. "
+    "If part of the source is blurry, cropped, or genuinely illegible, transcribe your best honest reading of it "
+    "rather than inventing plausible-looking content — never fabricate an exercise that isn't actually present. "
     "CRITICAL: Detect the language of the source content and write every question and answer in THAT SAME language "
     "(Arabic, French, or English). "
     "Return ONLY valid JSON, no markdown, no commentary."
@@ -282,7 +292,10 @@ GEN_PROMPT = (
     "numbering, and notation (keep all sub-parts like a), b), c) together in the same question text).\n"
     "- 'answer' = the complete worked solution. If a correction/solution is already visible in the source, "
     "transcribe it. If NO solution is shown (a blank exercise sheet), SOLVE the exercise yourself and give the "
-    "full correct answer with the key steps of reasoning.\n"
+    "full correct answer with the key steps of reasoning. ACCURACY IS CRITICAL: before writing the final answer, "
+    "re-derive it step by step and double-check every sign, computation, limit, root, and final result for "
+    "internal consistency — a wrong worked solution is worse than no solution, since the student will study it "
+    "as truth. If you are not fully confident in a step, work it out more carefully rather than guessing.\n"
     "FORMATTING (critical for readability — students must be able to actually read this on a phone screen): "
     "insert REAL newline characters ('\\n') to break 'question' and 'answer' into short readable paragraphs. "
     "Never produce one dense run-on block of text. Concretely: put the exercise title/header (e.g. 'Exercice 1', "
@@ -367,7 +380,9 @@ def _extract_json(text: str) -> dict:
 GEN_MODEL_FALLBACKS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"]
 
 
-async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> dict:
+async def call_gemini_cards(pages: List[tuple], hint: Optional[str]) -> dict:
+    """pages: ordered list of (raw_bytes, mime_type) — either one PDF, or 1+ photos of
+    consecutive pages of the SAME exercise sheet."""
     from google import genai
     from google.genai import types
     from google.genai.errors import APIError
@@ -375,19 +390,23 @@ async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> di
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured on the server")
 
+    is_pdf = any(mime == "application/pdf" for _, mime in pages)
     prompt = GEN_PROMPT
-    if mime == "application/pdf":
+    if is_pdf:
         prompt += "\nThis is a multi-page PDF — treat it as one continuous exercise sheet; exercises may span pages."
+    elif len(pages) > 1:
+        prompt += (
+            f"\nYou were given {len(pages)} photos, in the order provided — they are consecutive pages/parts of "
+            "the SAME exercise sheet (e.g. an exercise that starts on one photo may continue on the next). "
+            "Treat all of them together as one continuous document, not as separate unrelated sheets."
+        )
     if hint:
         prompt += f"\nThe student says this is about: {hint}"
 
     client_gemini = genai.Client(api_key=GEMINI_API_KEY)
-    contents = [
-        types.Content(role="user", parts=[
-            types.Part.from_bytes(data=base64.b64decode(file_b64), mime_type=mime),
-            types.Part.from_text(text=prompt),
-        ]),
-    ]
+    parts = [types.Part.from_bytes(data=data, mime_type=mime) for data, mime in pages]
+    parts.append(types.Part.from_text(text=prompt))
+    contents = [types.Content(role="user", parts=parts)]
     config = types.GenerateContentConfig(system_instruction=GEN_SYSTEM, response_mime_type="application/json")
 
     last_error: Optional[Exception] = None
@@ -406,13 +425,25 @@ async def call_gemini_cards(file_b64: str, mime: str, hint: Optional[str]) -> di
     raise last_error  # pragma: no cover — loop always returns or raises above
 
 
+def _strip_data_uri(b64: str) -> str:
+    if "," in b64 and b64.strip().startswith("data:"):
+        return b64.split(",", 1)[1]
+    return b64
+
+
 @api.post("/decks/generate")
 async def generate_deck(inp: GenerateInput, user: CurrentUser):
-    b64 = inp.image_base64
-    if "," in b64 and b64.strip().startswith("data:"):
-        b64 = b64.split(",", 1)[1]
+    if inp.images:
+        if len(inp.images) > MAX_GEN_PAGES:
+            raise HTTPException(status_code=400, detail=f"Too many pages (max {MAX_GEN_PAGES})")
+        pages = [(base64.b64decode(_strip_data_uri(p.data)), p.mime_type or "image/jpeg") for p in inp.images]
+    elif inp.image_base64:
+        pages = [(base64.b64decode(_strip_data_uri(inp.image_base64)), inp.mime_type or "image/jpeg")]
+    else:
+        raise HTTPException(status_code=400, detail="No image provided")
+
     try:
-        parsed = await call_gemini_cards(b64, inp.mime_type or "image/jpeg", inp.hint)
+        parsed = await call_gemini_cards(pages, inp.hint)
     except Exception as e:  # noqa
         logger.exception("AI generation failed")
         raise HTTPException(status_code=502, detail=f"AI generation failed: {e}")
@@ -460,14 +491,18 @@ def _build_game_data(c: dict) -> Optional[dict]:
     blank_answer = c.get("blank_answer")
 
     data = {}
-    if isinstance(quiz_options, list) and len(quiz_options) == 4 and isinstance(quiz_correct_index, int) \
-            and 0 <= quiz_correct_index < 4:
+    if (
+        isinstance(quiz_options, list) and len(quiz_options) == 4
+        and all(isinstance(o, str) and o.strip() for o in quiz_options)
+        and len({o.strip() for o in quiz_options}) == 4  # reject duplicate/near-empty distractors
+        and isinstance(quiz_correct_index, int) and 0 <= quiz_correct_index < 4
+    ):
         data["quiz_options"] = quiz_options
         data["quiz_correct_index"] = quiz_correct_index
-    if match_prompt and match_answer:
+    if match_prompt and match_answer and match_prompt.strip() and match_answer.strip():
         data["match_prompt"] = match_prompt
         data["match_answer"] = match_answer
-    if blank_sentence and blank_answer and "___" in blank_sentence:
+    if blank_sentence and blank_answer and blank_answer.strip() and "___" in blank_sentence:
         data["blank_sentence"] = blank_sentence
         data["blank_answer"] = blank_answer
     return data or None
