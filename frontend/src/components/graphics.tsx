@@ -1,6 +1,5 @@
 import React, { useEffect } from "react";
-import { View, StyleSheet, Text } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, StyleSheet, Text, Image, ImageStyle, StyleProp } from "react-native";
 import Svg, { Circle, Polyline, Line, Defs, LinearGradient, Stop, Path } from "react-native-svg";
 import Animated, {
   useSharedValue,
@@ -12,24 +11,45 @@ import Animated, {
 } from "react-native-reanimated";
 import { colors, font } from "@/src/theme";
 
-// -------------------------------------------------------------- Paper plane
-export function PaperPlane({ size = 28, color = colors.brand }: { size?: number; color?: string }) {
-  return <Ionicons name="paper-plane" size={size} color={color} />;
+const MASCOT_ASPECT = 566 / 712; // boo-mascot.png intrinsic width/height
+
+// -------------------------------------------------------------- Boo the mascot
+// Every "PaperPlane" call-site across the app (loaders, empty states, splash,
+// celebration screens) renders the brand mascot through this one component —
+// kept the old name so none of those call-sites needed to change.
+export function PaperPlane({
+  size = 28,
+  style,
+  flip = false,
+}: {
+  size?: number;
+  color?: string; // unused now — the mascot has fixed brand colors — kept so old call-sites typecheck
+  style?: StyleProp<ImageStyle>;
+  flip?: boolean;
+}) {
+  return (
+    <Image
+      source={require("@/assets/images/boo-mascot.png")}
+      style={[
+        { width: size, height: size / MASCOT_ASPECT, transform: flip ? [{ scaleX: -1 }] : undefined },
+        style,
+      ]}
+      resizeMode="contain"
+    />
+  );
 }
 
-// Flying paper-plane loader
+// Bouncing mascot loader (Duolingo-style idle bob, not a "flying" animation).
 export function PaperPlaneLoader({ size = 56, label }: { size?: number; label?: string }) {
-  const tx = useSharedValue(0);
-  const ty = useSharedValue(0);
+  const bob = useSharedValue(0);
   const rot = useSharedValue(0);
 
   useEffect(() => {
-    tx.value = withRepeat(withTiming(28, { duration: 1400, easing: Easing.inOut(Easing.ease) }), -1, true);
-    ty.value = withRepeat(withTiming(-14, { duration: 1400, easing: Easing.inOut(Easing.ease) }), -1, true);
+    bob.value = withRepeat(withTiming(1, { duration: 560, easing: Easing.inOut(Easing.ease) }), -1, true);
     rot.value = withRepeat(
       withSequence(
-        withTiming(-8, { duration: 700, easing: Easing.inOut(Easing.ease) }),
-        withTiming(8, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        withTiming(-6, { duration: 620, easing: Easing.inOut(Easing.ease) }),
+        withTiming(6, { duration: 620, easing: Easing.inOut(Easing.ease) }),
       ),
       -1,
       true,
@@ -37,14 +57,14 @@ export function PaperPlaneLoader({ size = 56, label }: { size?: number; label?: 
   }, []);
 
   const anim = useAnimatedStyle(() => ({
-    transform: [{ translateX: tx.value }, { translateY: ty.value }, { rotate: `${rot.value}deg` }],
+    transform: [{ translateY: -10 * bob.value }, { rotate: `${rot.value}deg` }],
   }));
 
   return (
     <View style={styles.loaderWrap}>
       <Animated.View style={anim}>
         <View style={styles.glowDot}>
-          <PaperPlane size={size} color={colors.brand} />
+          <PaperPlane size={size} />
         </View>
       </Animated.View>
       {label ? <Text style={styles.loaderLabel}>{label}</Text> : null}

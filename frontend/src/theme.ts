@@ -1,31 +1,34 @@
-// BoostBac design tokens — light, Duolingo-inspired, cyan-teal brand identity
-// (matches the paper-airplane logo's navy outline + cyan accents).
+// BoostBac design tokens — light, Duolingo-inspired identity built around the
+// "Boo" mascot brand kit: Boost Navy + Boost Teal core, with Butter/Coral/Lime
+// as the semantic warning/error/success accents (colors verified against the
+// actual mascot/logo artwork, not just the brand-guide swatch labels — a couple
+// of printed hex labels in that guide didn't match their own rendered assets).
 export const colors = {
   surface: "#FFFFFF",
-  onSurface: "#16283A",
-  surfaceSecondary: "#F3F7F9",
-  onSurfaceSecondary: "#48607A",
-  surfaceTertiary: "#E9F6F7",
-  onSurfaceTertiary: "#0E7C8C",
-  surfaceInverse: "#16283A",
+  onSurface: "#102A4C",
+  surfaceSecondary: "#F7F7F2",
+  onSurfaceSecondary: "#4A5A70",
+  surfaceTertiary: "#D9F3F3",
+  onSurfaceTertiary: "#076B78",
+  surfaceInverse: "#102A4C",
   onSurfaceInverse: "#FFFFFF",
-  brand: "#0EA5B8",
-  brandPrimary: "#0EA5B8",
+  brand: "#0797A3",
+  brandPrimary: "#0797A3",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#0C7A85",
-  brandTertiary: "#DFF6F8",
-  success: "#3BB54A",
-  successDark: "#2C9138",
-  warning: "#F5A623",
-  warningDark: "#C77F12",
-  error: "#EF4444",
-  errorDark: "#C22E2E",
-  errorTertiary: "#FDEBEB",
-  info: "#3B82F6",
-  border: "#E2E8EE",
-  borderStrong: "#0EA5B8",
-  divider: "#EEF2F5",
-  muted: "#94A3AF",
+  brandSecondary: "#076372",
+  brandTertiary: "#D9F3F3",
+  success: "#8FBF3F",
+  successDark: "#6E9930",
+  warning: "#F4D96B",
+  warningDark: "#C7A93A",
+  error: "#FF6B61",
+  errorDark: "#D6473E",
+  errorTertiary: "#FFEAE8",
+  info: "#AFA5FF",
+  border: "#EBEEF0",
+  borderStrong: "#0797A3",
+  divider: "#EBEEF0",
+  muted: "#8A97A8",
 };
 
 export const spacing = {

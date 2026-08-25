@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#0797A3"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.bacailearn.dttpl0",
@@ -53,9 +53,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/boostbac.png",
-          "imageWidth": 180,
+          "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#F7F7F2"
         }
       ],
       "@react-native-community/datetimepicker"
