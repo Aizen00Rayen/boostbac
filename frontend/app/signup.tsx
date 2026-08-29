@@ -7,10 +7,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/context/AuthContext";
 import { useI18n } from "@/src/i18n";
 import { ApiError, localizeError } from "@/src/api";
-import { colors, spacing, font, radius } from "@/src/theme";
+import { colors, spacing, font } from "@/src/theme";
 import { RText, PrimaryButton, Field } from "@/src/components/ui";
-
-const STREAMS = ["math", "science", "tech", "management", "letters", "languages"] as const;
 
 export default function Signup() {
   const { t } = useI18n();
@@ -20,8 +18,6 @@ export default function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [stream, setStream] = useState<string>("science");
-  const [role, setRole] = useState<string>("student");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -33,8 +29,8 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      await register(name.trim(), email.trim(), password, stream, role);
-      router.replace(role === "teacher" ? "/pending" : "/(tabs)");
+      await register(name.trim(), email.trim(), password);
+      router.replace("/onboarding");
     } catch (e: any) {
       setErr(e instanceof ApiError && e.status === 409 ? t("errorEmailTaken") : localizeError(e, t));
     } finally {
@@ -61,16 +57,6 @@ export default function Signup() {
         </RText>
 
         <View style={styles.form}>
-          <View style={styles.roleRow}>
-            {(["student", "teacher"] as const).map((r) => (
-              <Pressable key={r} testID={`role-${r}`} onPress={() => setRole(r)} style={[styles.roleChip, role === r && styles.streamChipActive]}>
-                <Ionicons name={r === "student" ? "school-outline" : "person-outline"} size={18} color={role === r ? colors.onBrandPrimary : colors.onSurfaceSecondary} />
-                <RText weight="bold" style={{ color: role === r ? colors.onBrandPrimary : colors.onSurfaceSecondary }}>
-                  {t(r === "student" ? "iAmStudent" : "iAmTeacher")}
-                </RText>
-              </Pressable>
-            ))}
-          </View>
           <Field testID="signup-name" placeholder={t("name")} value={name} onChangeText={setName} />
           <Field
             testID="signup-email"
@@ -81,24 +67,6 @@ export default function Signup() {
             onChangeText={setEmail}
           />
           <Field testID="signup-password" placeholder={t("password")} secureTextEntry value={password} onChangeText={setPassword} />
-
-          <RText weight="bold" style={styles.label}>
-            {t("stream")}
-          </RText>
-          <View style={styles.streamWrap}>
-            {STREAMS.map((s) => (
-              <Pressable
-                key={s}
-                testID={`stream-${s}`}
-                onPress={() => setStream(s)}
-                style={[styles.streamChip, stream === s && styles.streamChipActive]}
-              >
-                <RText weight="medium" style={{ color: stream === s ? colors.onBrandPrimary : colors.onSurfaceSecondary, fontSize: font.base }}>
-                  {t(`stream_${s}`)}
-                </RText>
-              </Pressable>
-            ))}
-          </View>
 
           {err ? (
             <RText testID="signup-error" style={styles.err}>
@@ -124,21 +92,6 @@ const styles = StyleSheet.create({
   back: { width: 44, height: 44, justifyContent: "center" },
   title: { fontSize: font["4xl"], color: colors.onSurface, marginTop: spacing.lg },
   subtitle: { fontSize: font.lg, color: colors.onSurfaceSecondary, marginTop: spacing.xs },
-  form: { marginTop: spacing.xl, gap: spacing.md },
-  roleRow: { flexDirection: "row", gap: spacing.md },
-  roleChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: spacing.lg, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
-  label: { color: colors.onSurface, fontSize: font.lg, marginTop: spacing.sm },
-  streamWrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  streamChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  streamChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  form: { marginTop: spacing["2xl"], gap: spacing.md },
   err: { color: colors.error, fontSize: font.base },
-  divider: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginVertical: spacing.xs },
-  line: { flex: 1, height: 1, backgroundColor: colors.border },
 });

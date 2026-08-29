@@ -37,17 +37,15 @@ export default function RootLayout() {
                 <Stack.Screen name="welcome" />
                 <Stack.Screen name="login" />
                 <Stack.Screen name="signup" />
+                <Stack.Screen name="onboarding" />
                 <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="pending" />
                 <Stack.Screen name="admin" />
-                <Stack.Screen name="scan" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+                <Stack.Screen name="capture" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
                 <Stack.Screen name="review" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-                <Stack.Screen name="exam" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-                <Stack.Screen name="create-post" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
-                <Stack.Screen name="resource/[id]" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
-                <Stack.Screen name="path/[subject]" options={{ animation: "slide_from_right" }} />
-                <Stack.Screen name="lesson/[chapter_id]" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
-                <Stack.Screen name="chat/[id]" options={{ animation: "slide_from_right" }} />
+                <Stack.Screen name="test" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
+                <Stack.Screen name="test-session" options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
+                <Stack.Screen name="library" options={{ animation: "slide_from_right" }} />
+                <Stack.Screen name="settings" options={{ presentation: "modal", animation: "slide_from_bottom" }} />
               </Stack>
             </View>
           </AuthProvider>

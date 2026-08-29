@@ -1,34 +1,33 @@
-// BoostBac design tokens — light, Duolingo-inspired identity built around the
-// "Boo" mascot brand kit: Boost Navy + Boost Teal core, with Butter/Coral/Lime
-// as the semantic warning/error/success accents (colors verified against the
-// actual mascot/logo artwork, not just the brand-guide swatch labels — a couple
-// of printed hex labels in that guide didn't match their own rendered assets).
+// BoostBac design tokens — matches the "BoostBac Study Companion" Stitch design system
+// exactly: Deep Boost Navy + Electric Boost Teal core, Golden Amber for milestones,
+// Crimson for errors. Rounded (2), mobile-first, soft-shadow "tactile" identity built
+// around the "Boo" mascot.
 export const colors = {
-  surface: "#FFFFFF",
-  onSurface: "#102A4C",
-  surfaceSecondary: "#F7F7F2",
-  onSurfaceSecondary: "#4A5A70",
-  surfaceTertiary: "#D9F3F3",
-  onSurfaceTertiary: "#076B78",
-  surfaceInverse: "#102A4C",
+  surface: "#F7F9FB",
+  onSurface: "#0D2B52",
+  surfaceSecondary: "#F2F4F6",
+  onSurfaceSecondary: "#44474E",
+  surfaceTertiary: "#D6E3FF",
+  onSurfaceTertiary: "#006F79",
+  surfaceInverse: "#0D2B52",
   onSurfaceInverse: "#FFFFFF",
-  brand: "#0797A3",
-  brandPrimary: "#0797A3",
+  brand: "#008A96",
+  brandPrimary: "#008A96",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#076372",
-  brandTertiary: "#D9F3F3",
-  success: "#8FBF3F",
-  successDark: "#6E9930",
-  warning: "#F4D96B",
-  warningDark: "#C7A93A",
-  error: "#FF6B61",
-  errorDark: "#D6473E",
-  errorTertiary: "#FFEAE8",
-  info: "#AFA5FF",
-  border: "#EBEEF0",
-  borderStrong: "#0797A3",
-  divider: "#EBEEF0",
-  muted: "#8A97A8",
+  brandSecondary: "#0D2B52",
+  brandTertiary: "#D6E3FF",
+  success: "#008A96",
+  successDark: "#006F79",
+  warning: "#FF9F1C",
+  warningDark: "#D27F00",
+  error: "#D90429",
+  errorDark: "#93000A",
+  errorTertiary: "#FFDAD6",
+  info: "#7A93C0",
+  border: "#E0E3E5",
+  borderStrong: "#008A96",
+  divider: "#E0E3E5",
+  muted: "#74777F",
 };
 
 export const spacing = {

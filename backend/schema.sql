@@ -4,26 +4,38 @@
 -- apps that may share the same Supabase project. server.py sets search_path per-connection
 -- but also fully qualifies every query with `boostbac.` since connection poolers don't
 -- reliably preserve session-level SET search_path across pooled connections.
+--
+-- This schema replaces the old decks/cards/review_logs/exams/resources/conversations/messages
+-- model (Duolingo-path era) with the Exercise -> Question -> Attempt -> ReviewItem model from
+-- the product gap-analysis: a capture is decomposed into individual questions, each question's
+-- first attempt and every later spaced-repetition attempt are logged with real latency +
+-- mistake classification, and a ReviewItem (not the raw Question) is what SM-2 schedules and
+-- what mistake-classification is allowed to regenerate the shape of.
 
-create schema if not exists boostbac;
+-- Pre-beta rebuild: replaces the old decks/cards/review_logs/exams/resources/conversations/
+-- messages/path_chapters model outright (no production data to migrate). Drop-and-recreate
+-- rather than ALTERing table-by-table, since the users table's shape also changed (roles
+-- collapsed to student/admin, gamification columns removed, onboarding columns added).
+drop schema if exists boostbac cascade;
+
+create schema boostbac;
 
 create table if not exists boostbac.users (
-    user_id         text primary key,
-    name            text,
-    email           text not null unique,
-    password_hash   text,
-    stream          text default 'science',
-    language        text default 'ar',
-    daily_goal      integer default 20,
-    xp              integer default 0,
-    role            text default 'student',
-    status          text default 'active',
-    auth_provider   text default 'email',
-    picture         text,
-    exam_date       text,
-    created_at      timestamptz default now(),
-    approved_at     timestamptz,
-    rejected_at     timestamptz
+    user_id           text primary key,
+    name              text,
+    nickname          text,
+    email             text not null unique,
+    password_hash     text,
+    stream            text default 'science',
+    role              text default 'student',   -- student | admin
+    status            text default 'active',
+    auth_provider     text default 'email',
+    picture           text,
+    onboarded         boolean default false,
+    study_time_pref   text,                      -- morning | night | flexible
+    goal              text,                      -- remembering | understanding | consistency | confidence
+    pain_points       text[],                    -- forget_what_i_study | dont_know_where_to_start | avoid_hard_subjects | repeat_mistakes | no_consistency
+    created_at        timestamptz default now()
 );
 
 create table if not exists boostbac.user_sessions (
@@ -37,122 +49,113 @@ create index if not exists idx_user_sessions_expires on boostbac.user_sessions(e
 create table if not exists boostbac.streaks (
     user_id             text primary key references boostbac.users(user_id) on delete cascade,
     current_streak      integer default 0,
-    longest_streak       integer default 0,
+    longest_streak      integer default 0,
     last_active_date    text
 );
 
--- Fixed curriculum skeleton for the Duolingo-style learning path. Seeded with a
--- best-effort reconstruction of the real Bac program (verified by the app owner);
--- plain editable rows on purpose so a wrong chapter name/order is a one-line SQL
--- fix, not a code change.
-create table if not exists boostbac.path_chapters (
-    chapter_id   text primary key,
-    stream       text not null,
-    subject      text not null,
-    name         text not null,
-    name_ar      text,
-    order_index  integer not null
+-- One captured source document (e.g. one photographed exercise sheet). Kept as shared
+-- reference material — every question below stays linked back to it ("this question came
+-- from page X") — but every downstream action (attempt, mistake, review) operates on the
+-- Question, not the Exercise.
+create table if not exists boostbac.exercises (
+    exercise_id       text primary key,
+    user_id           text not null references boostbac.users(user_id) on delete cascade,
+    subject           text,
+    stream            text,
+    source_image_base64 text,
+    source_mime       text,
+    status            text default 'processing',  -- processing | ready | failed
+    error_message     text,
+    captured_at       timestamptz default now()
 );
-create index if not exists idx_path_chapters_stream_subject on boostbac.path_chapters(stream, subject, order_index);
+create index if not exists idx_exercises_user on boostbac.exercises(user_id, captured_at desc);
 
-create table if not exists boostbac.decks (
-    deck_id             text primary key,
+-- A single question, segmented out of an Exercise at capture time. The answer is generated
+-- immediately but kept hidden (never returned by the capture response) until the student's
+-- own attempt is logged, per the report's "attempt-before-reveal" rule.
+create table if not exists boostbac.questions (
+    question_id       text primary key,
+    exercise_id       text not null references boostbac.exercises(exercise_id) on delete cascade,
+    user_id           text not null references boostbac.users(user_id) on delete cascade,
+    order_index       integer default 0,
+    subject           text,
+    skill_tag         text,
+    text              text not null,
+    shared_context    text,                       -- e.g. a diagram/table/given-values shared with sibling questions
+    question_type     text default 'conceptual',  -- objective | math | conceptual | multi_formulation
+    mcq_options       jsonb,                       -- present only when question_type = 'objective' and MCQ-shaped
+    generated_answer  text,
+    answer_confidence text default 'likely',       -- verified | likely | needs_review
+    created_at        timestamptz default now()
+);
+create index if not exists idx_questions_exercise on boostbac.questions(exercise_id, order_index);
+create index if not exists idx_questions_user on boostbac.questions(user_id);
+
+-- A ReviewItem is the living, evolving artifact SM-2 schedules — distinct from the Question
+-- it originated from. Its item_type/item_content can change every time a mistake reclassifies
+-- it (Section 7): a "calculation slip" review item stays the same problem re-isolated on the
+-- failed operation, while a "conceptual gap" review item mutates into a concept-probe decoupled
+-- from the original numbers entirely.
+create table if not exists boostbac.review_items (
+    review_item_id     text primary key,
+    source_question_id text not null references boostbac.questions(question_id) on delete cascade,
     user_id             text not null references boostbac.users(user_id) on delete cascade,
     subject             text,
-    topic               text,
-    deck_name           text,
-    language            text,
-    created_at          timestamptz default now(),
-    saved               boolean default false,
-    attachment_base64   text,
-    attachment_mime     text,
-    chapter_id          text references boostbac.path_chapters(chapter_id) on delete set null
+    skill_tag           text,
+    item_type           text default 'original',  -- original | concept_probe | formula_probe | procedure_probe | calculation_probe | calculator_probe
+    item_content        text not null,
+    item_options        jsonb,
+    correct_answer      text,
+    answer_confidence   text default 'likely',
+    sm2_ease_factor      double precision default 2.5,
+    sm2_interval_days    integer default 0,
+    sm2_repetitions      integer default 0,
+    sm2_due_at           timestamptz not null default now(),
+    last_mistake_reason  text,
+    created_at           timestamptz default now(),
+    updated_at           timestamptz default now()
 );
-create index if not exists idx_decks_user on boostbac.decks(user_id);
-create index if not exists idx_decks_chapter on boostbac.decks(chapter_id);
+create index if not exists idx_review_items_user_due on boostbac.review_items(user_id, sm2_due_at);
+create index if not exists idx_review_items_source_question on boostbac.review_items(source_question_id);
 
-create table if not exists boostbac.cards (
-    card_id             text primary key,
-    deck_id             text references boostbac.decks(deck_id) on delete cascade,
+-- Every attempt — first-pass (attached to a Question, review_item_id null) or spaced-repetition
+-- / test (attached to a ReviewItem, question_id null) — logs real correctness + real latency +
+-- mistake reason. time_spent_seconds must always be a real client-measured value: the prior
+-- codebase hardcoded this to 0 across every SM-2 call, which silently blinded the scheduler to
+-- retrieval difficulty (one of SM-2's two required signals, the other being correctness).
+create table if not exists boostbac.attempts (
+    attempt_id          text primary key,
     user_id             text not null references boostbac.users(user_id) on delete cascade,
-    subject             text,
-    topic               text,
-    question            text,
-    answer              text,
-    difficulty          text default 'medium',
-    ease_factor         double precision default 2.5,
-    interval_days        integer default 0,
-    repetitions         integer default 0,
-    next_review_date    timestamptz not null default now(),
-    last_reviewed_at    timestamptz,
-    created_at          timestamptz default now(),
-    game_data           jsonb
+    question_id         text references boostbac.questions(question_id) on delete cascade,
+    review_item_id      text references boostbac.review_items(review_item_id) on delete cascade,
+    context             text not null default 'study',  -- study | review | test
+    correct             boolean not null,
+    time_spent_seconds  integer not null default 0,
+    mistake_reason      text,   -- concept | formula | procedure | calculation | calculator | rushed | unspecified — null if correct
+    attempted_at        timestamptz default now(),
+    constraint attempts_one_target check (
+        (question_id is not null and review_item_id is null) or
+        (question_id is null and review_item_id is not null)
+    )
 );
-create index if not exists idx_cards_user on boostbac.cards(user_id);
-create index if not exists idx_cards_deck on boostbac.cards(deck_id);
-create index if not exists idx_cards_due on boostbac.cards(user_id, next_review_date);
+create index if not exists idx_attempts_user on boostbac.attempts(user_id, attempted_at desc);
+create index if not exists idx_attempts_question on boostbac.attempts(question_id);
+create index if not exists idx_attempts_review_item on boostbac.attempts(review_item_id);
 
-create table if not exists boostbac.review_logs (
-    log_id       text primary key,
-    card_id      text,
-    user_id      text not null references boostbac.users(user_id) on delete cascade,
-    subject      text,
-    topic        text,
-    rating       text,
-    quality      integer,
-    correct      boolean,
-    reviewed_at  timestamptz default now()
+-- Personalized tests (Quick / Weak Spots / Subject / Mixed) — a generated, gradeable snapshot
+-- pulled from the same review_item pool, not a new content type of its own.
+create table if not exists boostbac.tests (
+    test_id           text primary key,
+    user_id           text not null references boostbac.users(user_id) on delete cascade,
+    mode              text not null,  -- quick | weak_spots | subject | mixed
+    subject           text,
+    questions         jsonb not null,  -- [{question_text, options, correct_index, skill_tag, source_review_item_id}]
+    score             integer,
+    correct           integer,
+    total             integer,
+    improved_skills   text[],
+    weak_skills       text[],
+    created_at        timestamptz default now(),
+    completed_at      timestamptz
 );
-create index if not exists idx_review_logs_user on boostbac.review_logs(user_id);
-create index if not exists idx_review_logs_reviewed_at on boostbac.review_logs(reviewed_at);
-
-create table if not exists boostbac.exams (
-    exam_id          text primary key,
-    user_id          text not null references boostbac.users(user_id) on delete cascade,
-    topics_covered   text[],
-    num_questions    integer,
-    created_at       timestamptz default now(),
-    score            integer,
-    correct          integer,
-    total            integer,
-    breakdown        jsonb,
-    duration_seconds integer,
-    taken_at         timestamptz
-);
-create index if not exists idx_exams_user on boostbac.exams(user_id);
-
-create table if not exists boostbac.resources (
-    resource_id         text primary key,
-    teacher_id          text not null references boostbac.users(user_id) on delete cascade,
-    teacher_name        text,
-    type                text,
-    subject             text,
-    stream              text default 'all',
-    title               text,
-    description         text default '',
-    attachment_base64   text,
-    attachment_mime     text,
-    has_attachment      boolean default false,
-    created_at          timestamptz default now()
-);
-create index if not exists idx_resources_teacher on boostbac.resources(teacher_id);
-
-create table if not exists boostbac.conversations (
-    conversation_id  text primary key,
-    participants     text[] not null,
-    names            jsonb,
-    last_message     text,
-    updated_at       timestamptz default now(),
-    created_at       timestamptz default now()
-);
-create index if not exists idx_conversations_participants on boostbac.conversations using gin(participants);
-
-create table if not exists boostbac.messages (
-    message_id       text primary key,
-    conversation_id  text not null references boostbac.conversations(conversation_id) on delete cascade,
-    sender_id        text,
-    sender_name      text,
-    text             text,
-    created_at       timestamptz default now()
-);
-create index if not exists idx_messages_conversation on boostbac.messages(conversation_id);
+create index if not exists idx_tests_user on boostbac.tests(user_id, created_at desc);

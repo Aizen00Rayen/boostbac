@@ -115,6 +115,53 @@ export function Card({ children, style, testID }: { children: React.ReactNode; s
   );
 }
 
+export function ProgressBar({ progress, height = 8, color = colors.brand }: { progress: number; height?: number; color?: string }) {
+  const p = Math.max(0, Math.min(1, progress));
+  return (
+    <View style={[styles.progressTrack, { height, borderRadius: height / 2 }]}>
+      <View style={[styles.progressFill, { width: `${p * 100}%`, height, borderRadius: height / 2, backgroundColor: color }]} />
+    </View>
+  );
+}
+
+// Single-select pill row used across mistake-reason, MCQ, and stream pickers.
+export function OptionRow({
+  label,
+  selected,
+  onPress,
+  icon,
+  testID,
+  tone = "neutral",
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  icon?: React.ReactNode;
+  testID?: string;
+  tone?: "neutral" | "success" | "error";
+}) {
+  const borderColor = selected ? (tone === "success" ? colors.success : tone === "error" ? colors.error : colors.brand) : colors.border;
+  return (
+    <Pressable testID={testID} onPress={onPress} style={[styles.optionRow, { borderColor, backgroundColor: selected ? colors.surfaceTertiary : colors.surface }]}>
+      {icon}
+      <RText weight={selected ? "bold" : "medium"} style={{ flex: 1, color: colors.onSurface }}>{label}</RText>
+      <View style={[styles.radioOuter, selected && { borderColor: colors.brand }]}>
+        {selected ? <View style={styles.radioInner} /> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+export function Chip({ label, selected, onPress, testID }: { label: string; selected: boolean; onPress: () => void; testID?: string }) {
+  return (
+    <Pressable testID={testID} onPress={onPress} style={[styles.chip, selected && styles.chipActive]}>
+      <RText weight="bold" style={{ color: selected ? colors.onBrandPrimary : colors.onSurfaceSecondary, fontSize: font.base }}>
+        {label}
+      </RText>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   btn: {
     height: 56,
@@ -141,4 +188,33 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     ...softShadow(),
   },
+  progressTrack: { width: "100%", backgroundColor: colors.surfaceTertiary, overflow: "hidden" },
+  progressFill: {},
+  optionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.brand },
+  chip: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
 });

@@ -4,7 +4,7 @@
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/boo-round-icon.png",
     "scheme": "boostbac",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -18,8 +18,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0797A3"
+        "foregroundImage": "./assets/images/boo-round-icon.png",
+        "backgroundColor": "#008A96"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.bacailearn.dttpl0",
@@ -33,7 +33,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/boo-round-icon.png"
     },
     "plugins": [
       "expo-router",

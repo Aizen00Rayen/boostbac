@@ -19,8 +19,8 @@ export default function Index() {
       router.replace("/welcome");
     } else if (user.role === "admin") {
       router.replace("/admin");
-    } else if (user.role === "teacher" && user.status !== "approved") {
-      router.replace("/pending");
+    } else if (!user.onboarded) {
+      router.replace("/onboarding");
     } else {
       router.replace("/(tabs)");
     }

@@ -4,12 +4,12 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useI18n } from "@/src/i18n";
-import { colors, spacing, font, radius } from "@/src/theme";
+import { colors, spacing, font } from "@/src/theme";
 import { RText, PrimaryButton } from "@/src/components/ui";
 import { PaperPlane } from "@/src/components/graphics";
 
 export default function Welcome() {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -21,22 +21,7 @@ export default function Welcome() {
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 0.9 }}
       />
-      <View style={[styles.top, { paddingTop: insets.top + spacing.md }]}>
-        <View style={styles.langRow}>
-          {(["ar", "fr"] as const).map((l) => (
-            <Pressable
-              key={l}
-              testID={`lang-toggle-${l}`}
-              onPress={() => setLang(l)}
-              style={[styles.langChip, lang === l && styles.langChipActive]}
-            >
-              <RText weight="bold" style={{ color: lang === l ? colors.onBrandPrimary : colors.onSurfaceSecondary }}>
-                {l === "ar" ? "العربية" : "Français"}
-              </RText>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+      <View style={{ height: insets.top + spacing.md }} />
 
       <View style={styles.hero}>
         <View style={styles.logoGlow}>
@@ -65,17 +50,6 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  top: { paddingHorizontal: spacing.lg },
-  langRow: { flexDirection: "row", gap: spacing.sm, alignSelf: "flex-end" },
-  langChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  langChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   hero: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl },
   logoGlow: {
     shadowColor: colors.brand,

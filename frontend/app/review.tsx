@@ -1,446 +1,249 @@
-import { useCallback, useEffect, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Image } from "expo-image";
-import { WebView } from "react-native-webview";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  interpolate,
-  withSequence,
-  withDelay,
-  Easing,
-  runOnJS,
-} from "react-native-reanimated";
-import { api, ApiError } from "@/src/api";
-import { useI18n, randomCheer, DERJA_SESSION_DONE } from "@/src/i18n";
-import { cacheQueue, getCachedQueue, isOnline, addPending, flushPending } from "@/src/offline";
-import { colors, spacing, font, radius, glow } from "@/src/theme";
-import { RText, PrimaryButton } from "@/src/components/ui";
+import { api } from "@/src/api";
+import { useI18n, MISTAKE_REASONS, MistakeReason } from "@/src/i18n";
+import { colors, spacing, font, radius } from "@/src/theme";
+import { RText, PrimaryButton, Card, OptionRow } from "@/src/components/ui";
 import { PaperPlane, PaperPlaneLoader } from "@/src/components/graphics";
 import { formatExerciseText } from "@/src/utils/formatText";
 
-type CardT = {
-  card_id: string;
-  deck_id?: string;
-  question: string;
-  answer: string;
-  subject: string;
-  topic: string;
-  difficulty: string;
-};
-type Rating = "again" | "hard" | "good" | "easy";
-type Attachment = { attachment_base64: string; attachment_mime: string };
+type ReviewItem = { review_item_id: string; subject: string; skill_tag: string; item_type: string; item_content: string };
+type Step = "loading" | "question" | "reveal" | "mistake" | "summary" | "empty";
 
-const RATINGS: { key: Rating; color: string }[] = [
-  { key: "again", color: colors.info },
-  { key: "hard", color: colors.warning },
-  { key: "good", color: colors.brand },
-  { key: "easy", color: colors.success },
-];
+const BADGE_KEY: Record<string, string> = {
+  original: "reviewBadgeOriginal",
+  concept_probe: "reviewBadgeConceptProbe",
+  formula_probe: "reviewBadgeFormulaProbe",
+  procedure_probe: "reviewBadgeProcedureProbe",
+  calculation_probe: "reviewBadgeCalculationProbe",
+  calculator_probe: "reviewBadgeCalculatorProbe",
+};
+
+const MISTAKE_ICONS: Record<MistakeReason, keyof typeof Ionicons.glyphMap> = {
+  concept: "bulb-outline",
+  formula: "calculator-outline",
+  procedure: "git-branch-outline",
+  calculation: "keypad-outline",
+  calculator: "hardware-chip-outline",
+  rushed: "time-outline",
+};
 
 export default function Review() {
-  const { t, isRTL } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { deck_id } = useLocalSearchParams<{ deck_id?: string }>();
 
-  const [queue, setQueue] = useState<CardT[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState<Step>("loading");
+  const [items, setItems] = useState<ReviewItem[]>([]);
   const [index, setIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-  const [reviewed, setReviewed] = useState(0);
-  const [correct, setCorrect] = useState(0);
-  const [xp, setXp] = useState(0);
-  const [done, setDone] = useState(false);
-  const [summary, setSummary] = useState<{ bonus_xp: number; total_xp: number; current_streak: number } | null>(null);
-  const [offline, setOffline] = useState(false);
-  const [cheer, setCheer] = useState("");
-  const [attachments, setAttachments] = useState<Record<string, Attachment | null>>({});
-
-  const spin = useSharedValue(0);
-  const cheerOpacity = useSharedValue(0);
-  const total = queue.length;
-
-  useEffect(() => {
-    const card = queue[index];
-    const deckId = card?.deck_id;
-    if (!deckId || deckId in attachments) return;
-    (async () => {
-      try {
-        const a = await api<Attachment>(`/decks/${deckId}/attachment`);
-        setAttachments((prev) => ({ ...prev, [deckId]: a }));
-      } catch {
-        setAttachments((prev) => ({ ...prev, [deckId]: null }));
-      }
-    })();
-  }, [index, queue, attachments]);
+  const [answer, setAnswer] = useState<{ answer: string; confidence: string } | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [correctCount, setCorrectCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+  const attemptStartRef = useRef(Date.now());
 
   useEffect(() => {
     (async () => {
       try {
-        flushPending();
-        const online = await isOnline();
-        if (!online) throw new Error("offline");
-        const q = await api<{ cards: CardT[] }>(`/review/queue${deck_id ? `?deck_id=${deck_id}` : ""}`);
-        setQueue(q.cards);
-        if (!deck_id) cacheQueue(q.cards as any);
-        if (q.cards.length === 0) finish(0, 0, 0);
+        const res = await api<{ items: ReviewItem[]; total_due: number }>("/review/queue");
+        if (!res.items.length) { setStep("empty"); return; }
+        setItems(res.items);
+        attemptStartRef.current = Date.now();
+        setStep("question");
       } catch {
-        // offline fallback: use cached queue
-        const cached = await getCachedQueue();
-        setOffline(true);
-        setQueue(cached as any);
-        if (cached.length === 0) finish(0, 0, 0);
-      } finally {
-        setLoading(false);
+        setStep("empty");
       }
     })();
-  }, [deck_id]);
-
-  const showCheer = (text: string) => {
-    setCheer(text);
-    cheerOpacity.value = withSequence(
-      withTiming(1, { duration: 220 }),
-      withDelay(1100, withTiming(0, { duration: 400 })),
-    );
-  };
-
-  const cheerStyle = useAnimatedStyle(() => ({ opacity: cheerOpacity.value }));
-
-  const flip = () => {
-    Haptics.selectionAsync();
-    const next = !flipped;
-    setFlipped(next);
-    spin.value = withTiming(next ? 1 : 0, { duration: 420, easing: Easing.inOut(Easing.ease) });
-  };
-
-  const frontStyle = useAnimatedStyle(() => ({
-    transform: [{ perspective: 1000 }, { rotateY: `${interpolate(spin.value, [0, 1], [0, 180])}deg` }],
-    opacity: spin.value < 0.5 ? 1 : 0,
-  }));
-  const backStyle = useAnimatedStyle(() => ({
-    transform: [{ perspective: 1000 }, { rotateY: `${interpolate(spin.value, [0, 1], [180, 360])}deg` }],
-    opacity: spin.value >= 0.5 ? 1 : 0,
-  }));
-
-  const finish = useCallback(async (rev: number, cor: number, gainedXp: number) => {
-    try {
-      const s = await api<{ bonus_xp: number; total_xp: number; current_streak: number }>("/review/complete", {
-        method: "POST",
-        body: { reviewed: rev, correct: cor, xp_earned: gainedXp },
-      });
-      setSummary(s);
-    } catch {
-      setSummary({ bonus_xp: 0, total_xp: gainedXp, current_streak: 0 });
-    }
-    setDone(true);
   }, []);
 
-  const rate = async (rating: Rating) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const card = queue[index];
-    const newReviewed = reviewed + 1;
-    const newCorrect = correct + (rating === "again" || rating === "hard" ? 0 : 1);
-    setReviewed(newReviewed);
-    setCorrect(newCorrect);
-
-    let gained = 0;
-    const LOCAL_XP: Record<Rating, number> = { again: 2, hard: 5, good: 8, easy: 10 };
+  const reveal = async () => {
+    Haptics.selectionAsync();
+    const item = items[index];
+    const secs = Math.max(1, Math.round((Date.now() - attemptStartRef.current) / 1000));
+    setElapsed(secs);
     try {
-      const res = await api<{ xp_earned: number }>("/review/submit", { method: "POST", body: { card_id: card.card_id, rating }, timeout: 12000 });
-      gained = res.xp_earned;
-      setXp((x) => x + res.xp_earned);
-    } catch (e: any) {
-      // offline / network → queue for later sync, credit XP locally
-      if (e instanceof ApiError && (e.status === 0 || e.status === 408)) {
-        setOffline(true);
-        await addPending({ card_id: card.card_id, rating });
-        gained = LOCAL_XP[rating];
-        setXp((x) => x + gained);
-      }
-    }
+      const res = await api<{ answer: string; confidence: string }>(`/review-items/${item.review_item_id}/reveal`, {
+        method: "POST", body: { time_spent_seconds: secs },
+      });
+      setAnswer(res);
+      setStep("reveal");
+    } catch {}
+  };
 
-    if (rating === "good" || rating === "easy") showCheer(randomCheer());
-
-    // build next queue: if "again", re-append card
-    let nextQueue = queue;
-    if (rating === "again") {
-      nextQueue = [...queue, card];
-      setQueue(nextQueue);
-    }
-
-    // reset flip then advance
-    spin.value = withTiming(0, { duration: 180 });
-    setFlipped(false);
-
-    if (index + 1 >= nextQueue.length) {
-      finish(newReviewed, newCorrect, xp + gained);
+  const advance = () => {
+    setAnswer(null);
+    if (index + 1 >= items.length) {
+      setStep("summary");
     } else {
-      setIndex(index + 1);
+      setIndex((i) => i + 1);
+      attemptStartRef.current = Date.now();
+      setStep("question");
     }
   };
 
-  if (loading) {
+  const reportCorrect = async (correct: boolean) => {
+    const item = items[index];
+    if (correct) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCorrectCount((c) => c + 1);
+      try {
+        await api(`/review-items/${item.review_item_id}/attempt`, { method: "POST", body: { time_spent_seconds: elapsed, correct: true } });
+      } catch {}
+      advance();
+    } else {
+      setRedoCount((c) => c + 1);
+      setStep("mistake");
+    }
+  };
+
+  const reportMistake = async (reason: MistakeReason) => {
+    const item = items[index];
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await api(`/review-items/${item.review_item_id}/attempt`, {
+        method: "POST", body: { time_spent_seconds: elapsed, correct: false, mistake_reason: reason },
+      });
+    } catch {}
+    advance();
+  };
+
+  if (step === "loading") {
+    return <View style={styles.centered}><PaperPlaneLoader label={t("loading")} /></View>;
+  }
+
+  if (step === "empty") {
     return (
-      <View style={styles.centered}>
-        <PaperPlaneLoader label={t("loading")} />
+      <View style={[styles.centered, { padding: spacing.xl }]} testID="review-empty">
+        <PaperPlane size={64} />
+        <RText weight="heavy" style={styles.title}>{t("reviewEmptyTitle")}</RText>
+        <RText style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: spacing.sm }}>{t("reviewEmptySubtitle")}</RText>
+        <PrimaryButton testID="review-empty-back" label={t("reviewBackHome")} onPress={() => router.back()} style={{ marginTop: spacing["2xl"], width: 260 }} />
       </View>
     );
   }
 
-  if (done) {
-    return <Summary reviewed={reviewed} correct={correct} xp={xp} summary={summary} onClose={() => router.back()} />;
+  if (step === "summary") {
+    return (
+      <View style={[styles.centered, { padding: spacing.xl }]} testID="review-summary">
+        <Card style={{ alignItems: "center", paddingVertical: spacing["2xl"], width: "100%" }}>
+          <PaperPlane size={72} />
+          <RText weight="heavy" style={[styles.title, { marginTop: spacing.lg }]}>{t("reviewDone")}</RText>
+          <RText weight="medium" style={{ color: colors.onSurfaceSecondary, marginTop: 4 }}>
+            {t("reviewDoneSummary", { correct: correctCount, redo: redoCount })}
+          </RText>
+          <View style={styles.statsRow}>
+            <View style={[styles.statBox, { borderColor: colors.warning }]}>
+              <Ionicons name="alert-circle" size={20} color={colors.warning} />
+              <RText weight="heavy" style={{ color: colors.onSurface, fontSize: font.xl }}>{redoCount}</RText>
+              <RText style={{ color: colors.muted, fontSize: font.sm }}>{t("reviewRedoStat")}</RText>
+            </View>
+            <View style={[styles.statBox, { borderColor: colors.success }]}>
+              <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+              <RText weight="heavy" style={{ color: colors.onSurface, fontSize: font.xl }}>{correctCount}</RText>
+              <RText style={{ color: colors.muted, fontSize: font.sm }}>{t("reviewCorrectStat")}</RText>
+            </View>
+          </View>
+        </Card>
+        <PrimaryButton testID="review-back-home" label={t("reviewBackHome")} onPress={() => router.back()} style={{ marginTop: spacing.xl, width: "100%" }} />
+      </View>
+    );
   }
 
-  const card = queue[index];
-  const progress = total > 0 ? (index) / total : 0;
-  const attachment = card.deck_id ? attachments[card.deck_id] : null;
-  const attachmentUri = attachment
-    ? `data:${attachment.attachment_mime};base64,${attachment.attachment_base64}`
-    : null;
-  const questionText = formatExerciseText(card.question);
-  const answerText = formatExerciseText(card.answer);
-  const isLongQuestion = questionText.length > 90;
-  const isLongAnswer = answerText.length > 90;
-
+  const item = items[index];
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable testID="review-close" onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="close" size={26} color={colors.onSurfaceSecondary} />
+          <Ionicons name="close" size={24} color={colors.onSurfaceSecondary} />
         </Pressable>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-        </View>
-        <View style={styles.xpChip}>
-          <Ionicons name="flash" size={14} color={colors.warning} />
-          <RText weight="heavy" style={{ color: colors.onSurface, fontSize: font.sm }}>{xp}</RText>
-        </View>
+        <RText weight="heavy" style={styles.wordmark}>BoostBac</RText>
+        <View style={styles.iconBtn} />
       </View>
 
-      {offline && (
-        <View style={styles.offlineBanner} testID="offline-banner">
-          <Ionicons name="cloud-offline-outline" size={15} color={colors.warning} />
-          <RText weight="medium" style={{ color: colors.warning, fontSize: font.sm }}>{t("offline")}</RText>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+        <View style={styles.topRow}>
+          <View style={styles.badge}>
+            <Ionicons name="refresh" size={14} color={colors.onBrandPrimary} />
+            <RText weight="bold" style={{ color: colors.onBrandPrimary, fontSize: font.sm }}>{t(BADGE_KEY[item.item_type] || "reviewBadgeOriginal")}</RText>
+          </View>
+          <RText weight="bold" style={{ color: colors.onSurfaceSecondary, fontSize: font.sm }}>
+            {t("reviewQuestionProgress", { i: index + 1, n: items.length })}
+          </RText>
         </View>
-      )}
 
-      <View style={styles.cardArea}>
-        <Animated.View style={[styles.cheerToast, cheerStyle]} pointerEvents="none">
-          <RText weight="heavy" style={styles.cheerText}>{cheer}</RText>
-        </Animated.View>
-        <Pressable testID="flashcard" onPress={flip} style={styles.cardPress}>
-          <Animated.View style={[styles.card, styles.cardFront, frontStyle]}>
-            <View style={styles.subjectTag}>
-              <RText weight="bold" style={{ color: colors.brand, fontSize: font.sm }}>{card.subject} · {card.topic}</RText>
-            </View>
-            {attachmentUri ? (
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.attachmentScroll} showsVerticalScrollIndicator={false}>
-                {attachment!.attachment_mime === "application/pdf" ? (
-                  <WebView source={{ uri: attachmentUri }} style={styles.attachmentPdf} scalesPageToFit />
-                ) : (
-                  <Image source={{ uri: attachmentUri }} style={styles.attachmentImage} contentFit="contain" />
-                )}
-                <RText
-                  weight="medium"
-                  style={[styles.qText, styles.qTextWithAttachment, { textAlign: isRTL ? "right" : "left", writingDirection: isRTL ? "rtl" : "ltr" }]}
-                >
-                  {questionText}
-                </RText>
-              </ScrollView>
-            ) : (
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cardCenter} showsVerticalScrollIndicator={false}>
-                <RText
-                  weight={isLongQuestion ? "medium" : "bold"}
-                  style={[
-                    styles.qText,
-                    isLongQuestion && styles.qTextLong,
-                    { textAlign: isLongQuestion ? (isRTL ? "right" : "left") : "center", writingDirection: isRTL ? "rtl" : "ltr" },
-                  ]}
-                >
-                  {questionText}
-                </RText>
-              </ScrollView>
-            )}
-            <View style={styles.revealHint}>
-              <Ionicons name="sync" size={16} color={colors.muted} />
-              <RText style={{ color: colors.muted, fontSize: font.sm }}>{t("tapToReveal")}</RText>
-            </View>
-          </Animated.View>
+        <Card style={{ marginTop: spacing.md }}>
+          <RText weight="medium" style={styles.qText}>{formatExerciseText(item.item_content)}</RText>
+        </Card>
 
-          <Animated.View style={[styles.card, styles.cardBack, backStyle]}>
-            <View style={styles.subjectTag}>
-              <RText weight="bold" style={{ color: colors.onBrandPrimary, fontSize: font.sm }}>{t("answer")}</RText>
-            </View>
-            <ScrollView contentContainerStyle={styles.cardCenter} showsVerticalScrollIndicator={false}>
-              <RText
-                weight="medium"
-                style={[
-                  styles.aText,
-                  isLongAnswer && styles.aTextLong,
-                  { textAlign: isLongAnswer ? (isRTL ? "right" : "left") : "center", writingDirection: isRTL ? "rtl" : "ltr" },
-                ]}
-              >
-                {answerText}
-              </RText>
-            </ScrollView>
-          </Animated.View>
-        </Pressable>
-      </View>
+        {step !== "question" && answer ? (
+          <View style={{ marginTop: spacing.xl }}>
+            <RText weight="heavy" style={styles.title}>{t("solutionTitle")}</RText>
+            <Card style={{ marginTop: spacing.sm, backgroundColor: colors.brandTertiary, borderWidth: 0 }}>
+              <RText weight="medium" style={styles.aText}>{formatExerciseText(answer.answer)}</RText>
+            </Card>
+          </View>
+        ) : null}
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-        {!flipped ? (
-          <PrimaryButton testID="reveal-answer" label={t("showAnswer")} onPress={flip} />
-        ) : (
-          <View>
-            <RText weight="bold" style={styles.rateLabel}>{t("rateRecall")}</RText>
-            <View style={styles.ratingRow}>
-              {RATINGS.map((r) => (
-                <Pressable
-                  key={r.key}
-                  testID={`rate-${r.key}`}
-                  onPress={() => rate(r.key)}
-                  style={({ pressed }) => [
-                    styles.rateBtn,
-                    { borderColor: r.key === "good" ? colors.brand : colors.border },
-                    r.key === "good" && glow(colors.brand, 8),
-                    pressed && { transform: [{ scale: 0.96 }] },
-                  ]}
-                >
-                  <RText weight="heavy" style={{ color: r.color, fontSize: font.base }}>{t(r.key)}</RText>
-                </Pressable>
+        {step === "mistake" ? (
+          <View style={{ marginTop: spacing.xl }}>
+            <View style={{ alignItems: "center", marginBottom: spacing.md }}><PaperPlane size={44} /></View>
+            <RText weight="heavy" style={[styles.title, { textAlign: "center" }]}>{t("mistakeTitle")}</RText>
+            <RText style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: 4 }}>{t("mistakeSubtitle")}</RText>
+            <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
+              {MISTAKE_REASONS.map((r) => (
+                <OptionRow
+                  key={r}
+                  testID={`mistake-${r}`}
+                  label={t(`mistake_${r}`)}
+                  selected={false}
+                  onPress={() => reportMistake(r)}
+                  icon={<Ionicons name={MISTAKE_ICONS[r]} size={20} color={colors.onSurfaceSecondary} />}
+                />
               ))}
             </View>
           </View>
-        )}
+        ) : null}
+      </ScrollView>
+
+      <View style={[styles.stickyBar, { paddingBottom: insets.bottom + spacing.md }]}>
+        {step === "question" ? (
+          <PrimaryButton
+            testID="review-solved-it"
+            label={t("studySolvedIt")}
+            icon={<Ionicons name="checkmark-circle" size={20} color={colors.onBrandPrimary} />}
+            onPress={reveal}
+          />
+        ) : step === "reveal" ? (
+          <>
+            <RText weight="bold" style={styles.hintText}>{t("howWasIt")}</RText>
+            <View style={{ flexDirection: "row", gap: spacing.md }}>
+              <PrimaryButton testID="report-wrong" variant="secondary" label={t("gotItWrong")} onPress={() => reportCorrect(false)} style={{ flex: 1 }} />
+              <PrimaryButton testID="report-correct" label={t("gotItRight")} onPress={() => reportCorrect(true)} style={{ flex: 1 }} />
+            </View>
+          </>
+        ) : null}
       </View>
     </View>
   );
 }
 
-function Summary({
-  reviewed,
-  correct,
-  xp,
-  summary,
-  onClose,
-}: {
-  reviewed: number;
-  correct: number;
-  xp: number;
-  summary: { bonus_xp: number; total_xp: number; current_streak: number } | null;
-  onClose: () => void;
-}) {
-  const { t } = useI18n();
-  const insets = useSafeAreaInsets();
-  const fly = useSharedValue(0);
-  const acc = reviewed > 0 ? Math.round((correct / reviewed) * 100) : 0;
-
-  useEffect(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    fly.value = withSequence(
-      withTiming(0, { duration: 100 }),
-      withDelay(200, withTiming(1, { duration: 1200, easing: Easing.out(Easing.cubic) })),
-    );
-  }, []);
-
-  const planeStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: interpolate(fly.value, [0, 1], [-140, 160]) },
-      { translateY: interpolate(fly.value, [0, 0.5, 1], [40, -60, -160]) },
-      { rotate: `${interpolate(fly.value, [0, 1], [-10, 20])}deg` },
-      { scale: interpolate(fly.value, [0, 1], [1, 0.5]) },
-    ],
-    opacity: interpolate(fly.value, [0, 0.8, 1], [1, 1, 0]),
-  }));
-
-  return (
-    <View style={[styles.container, { alignItems: "center", justifyContent: "center", padding: spacing.xl }]} testID="review-summary">
-      <View style={styles.flyZone} pointerEvents="none">
-        <Animated.View style={planeStyle}>
-          <PaperPlane size={54} color={colors.brand} />
-        </Animated.View>
-      </View>
-      <RText weight="heavy" style={styles.summaryTitle}>{t("sessionComplete")}</RText>
-      <RText weight="medium" style={styles.derjaLine}>{DERJA_SESSION_DONE}</RText>
-
-      <View style={styles.summaryStats}>
-        <View style={styles.sumItem}>
-          <RText weight="heavy" style={styles.sumVal}>{reviewed}</RText>
-          <RText style={styles.sumLabel}>{t("cardsReviewed")}</RText>
-        </View>
-        <View style={styles.sumItem}>
-          <RText weight="heavy" style={[styles.sumVal, { color: colors.success }]}>{acc}%</RText>
-          <RText style={styles.sumLabel}>{t("accuracy")}</RText>
-        </View>
-        <View style={styles.sumItem}>
-          <RText weight="heavy" style={[styles.sumVal, { color: colors.warning }]}>+{xp + (summary?.bonus_xp || 0)}</RText>
-          <RText style={styles.sumLabel}>{t("xpEarned")}</RText>
-        </View>
-      </View>
-
-      <View style={styles.streakBanner}>
-        <PaperPlane size={20} color={colors.brand} />
-        <RText weight="bold" style={{ color: colors.onSurface }}>
-          {summary?.current_streak ?? 0} {t("streak")}
-        </RText>
-      </View>
-
-      <PrimaryButton testID="summary-back" label={t("backHome")} onPress={onClose} style={{ width: 260, marginTop: spacing["2xl"] }} />
-    </View>
-  );
-}
-
-const CARD_H = 400;
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   centered: { flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  progressTrack: { flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary, overflow: "hidden" },
-  progressFill: { height: "100%", backgroundColor: colors.brand, borderRadius: radius.pill },
-  xpChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
-  cardArea: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
-  offlineBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingVertical: 6, marginHorizontal: spacing.lg, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.warning },
-  cheerToast: { position: "absolute", top: 8, left: 0, right: 0, alignItems: "center", zIndex: 5 },
-  cheerText: { color: colors.success, fontSize: font.lg, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.pill, overflow: "hidden" },
-  cardPress: { height: CARD_H },
-  card: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    backfaceVisibility: "hidden",
-    borderWidth: 1,
-  },
-  cardFront: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
-  cardBack: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },
-  subjectTag: { alignSelf: "flex-start", backgroundColor: colors.surfaceTertiary, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
-  cardCenter: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg },
-  qText: { color: colors.onSurface, fontSize: font["2xl"], textAlign: "center", lineHeight: 34 },
-  qTextLong: { fontSize: font.lg, lineHeight: 26, alignSelf: "stretch" },
-  qTextWithAttachment: { fontSize: font.base, lineHeight: 22, marginTop: spacing.md, alignSelf: "stretch" },
-  aText: { color: colors.onSurfaceSecondary, fontSize: font.xl, textAlign: "center", lineHeight: 30 },
-  aTextLong: { fontSize: font.lg, lineHeight: 25, alignSelf: "stretch" },
-  revealHint: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  attachmentScroll: { alignItems: "center", paddingVertical: spacing.md },
-  attachmentImage: { width: "100%", height: 200, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-  attachmentPdf: { width: "100%", height: 260, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-  footer: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  rateLabel: { color: colors.onSurfaceSecondary, textAlign: "center", marginBottom: spacing.md },
-  ratingRow: { flexDirection: "row", gap: spacing.sm },
-  rateBtn: { flex: 1, height: 60, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
-  // summary
-  flyZone: { height: 120, width: "100%", alignItems: "center", justifyContent: "center", marginBottom: spacing.lg },
-  summaryTitle: { color: colors.onSurface, fontSize: font["2xl"], textAlign: "center" },
-  derjaLine: { color: colors.brand, fontSize: font.lg, textAlign: "center", marginTop: spacing.sm },
-  summaryStats: { flexDirection: "row", gap: spacing.lg, marginTop: spacing["2xl"] },
-  sumItem: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, minWidth: 92, borderWidth: 1, borderColor: colors.border },
-  sumVal: { color: colors.brand, fontSize: font["2xl"] },
-  sumLabel: { color: colors.muted, fontSize: font.sm, textAlign: "center", marginTop: 4 },
-  streakBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.pill, marginTop: spacing.xl },
+  wordmark: { color: colors.onSurface, fontSize: font.lg },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  badge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
+  title: { color: colors.onSurface, fontSize: font.xl },
+  qText: { color: colors.onSurface, fontSize: font.lg, lineHeight: 26 },
+  aText: { color: colors.onSurface, fontSize: font.base, lineHeight: 24 },
+  statsRow: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.xl },
+  statBox: { alignItems: "center", gap: 4, paddingVertical: spacing.lg, paddingHorizontal: spacing.xl, borderRadius: radius.md, borderWidth: 1.5 },
+  stickyBar: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.lg, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  hintText: { color: colors.onSurfaceSecondary, fontSize: font.sm, textAlign: "center" },
 });
